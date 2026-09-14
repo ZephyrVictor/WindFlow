@@ -81,6 +81,19 @@
 - **原因**：节点=工单一一对应，attach/retry/inject 全部自然复用；引擎改动最小（两处）；DAG 大小随目标伸缩。
 - **影响**：flow/cli.py、flow/orchestrator.py、flow/paths.py；planner 的 agent.md 内嵌子 yaml 模板与 skill schema；首个用例 iot_hunter（独立项目目录）。
 
+## ADR-0007：agent 自编排生态——形态 A + 标准 skill + 写侧命令面
+
+- **状态**：已接受
+- **日期**：2026-09-14
+- **背景**：flow 终态是"agent 编排 agent"：用户与任意 agent 对话即可创建/调整/编排流水线并总控。两种形态：A（外层 agent 操控 flow，run 内 control 收尾）与 B（control 反向成为唯一入口、可改自身 DAG）。选 A：职责清晰（编排/运行分离），skill 可复用给任意会话/CI；B 会让 control 能力边界膨胀且绕回运行时动态节点问题。
+- **决策**：
+  1. 形态 A。外层 agent 经标准 **Anthropic skill 格式**（SKILL.md + frontmatter，skill-creator 规范）习得 flow 用法；skill 源文件在本仓库 `skills/flow/`，手动拷贝到 `~/.claude/skills/` 分发（不做 install 命令，保持简单）。
+  2. 补齐写侧命令面：`flow validate`（改完必验）、`flow agent new/list/show`、`flow init`（骨架模板）、`flow clean`（清终态 run 的 session；`--runs N` 交互删旧 run）。
+  3. skill 与引擎代码分离：skill 是"说明书"（命令/schema/编排模式/行为准则），不内嵌引擎实现细节；模板文本仍集中在 prompts.py（init 骨架、agent.md 四段式模板）。
+- **备选方案**：flow skill install 自动分发（版本随包，但多一条命令维护面）；B 形态（见背景）。
+- **原因**：标准 skill 格式可被任意 claude 会话自动发现加载、生态兼容；手动拷贝符合个人工具现状。
+- **影响**：cli.py 命令面 9→13 组；SKILL.md 是"agent 能否正确编排"的单点，须真机用"无知会话"验收并迭代。
+
 ## ADR 模板
 
 复制以下模板，使用递增编号：

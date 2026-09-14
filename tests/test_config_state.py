@@ -229,3 +229,57 @@ class TestPipelineFileResolution:
         cfg = load_config(f)
         assert cfg.name == "sub"
         assert list(cfg.nodes) == ["s1"]
+
+
+class TestScaffoldCommands:
+    def test_init_creates_skeleton(self, tmp_path: Path, capsys):
+        from flow import cli as flow_cli
+
+        target = tmp_path / "proj"
+        args = flow_cli.build_parser().parse_args(["init", str(target)])
+        args.func(args)
+        assert (target / C.PIPELINE_FILE).is_file()
+        assert (target / C.AGENTS_DIR).is_dir()
+        assert (target / C.WORKDIR_NAME / ".gitkeep").is_file()
+        assert "runs/" in (target / ".gitignore").read_text()
+        # init twice refuses to overwrite
+        import pytest as _pytest
+
+        with _pytest.raises(SystemExit):
+            args.func(args)
+
+    def test_agent_new_and_list(self, tmp_path: Path, capsys):
+        from flow import cli as flow_cli
+
+        proj = tmp_path / "proj"
+        flow_cli.build_parser().parse_args(["init", str(proj)]).func(
+            flow_cli.build_parser().parse_args(["init", str(proj)])
+        )
+        a = flow_cli.build_parser().parse_args(
+            ["agent", "new", "worker", "-p", str(proj)]
+        )
+        a.func(a)
+        md = proj / C.AGENTS_DIR / "worker" / C.AGENT_MD
+        assert md.is_file()
+        assert "## 角色" in md.read_text()
+        # duplicate new refuses
+        with pytest.raises(SystemExit):
+            a.func(a)
+
+    def test_validate_reports_nodes(self, project: Path, capsys):
+        from flow import cli as flow_cli
+
+        write_pipeline(
+            project,
+            """
+            name: t
+            nodes:
+              n1: {agent: a1, backend: claude, task: x}
+              n2: {agent: a2, backend: claude, task: y, needs: [n1], gate: true}
+            """,
+        )
+        args = flow_cli.build_parser().parse_args(["validate", str(project / C.PIPELINE_FILE)])
+        args.func(args)
+        out = capsys.readouterr().out
+        assert "valid: t (2 nodes)" in out
+        assert "needs=n1 [gate]" in out

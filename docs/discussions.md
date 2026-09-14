@@ -28,6 +28,32 @@
 - 决策：`decisions.md` / ADR-XXXX（如适用）
 ```
 
+## 2026-09-14：agent 自编排生态（形态 A）
+
+### 背景
+
+iot_hunter 验收通过后讨论终态方向：flow 要发展成"用户与一个主 agent 对话，该 agent 创建/调整/编排其他 agent"。需确定操控形态与 skill 载体。
+
+### 讨论要点
+
+- 形态 A（外层 agent 操控 flow + run 内 control 收尾）vs B（control 唯一入口、可改自身 DAG）
+- skill 必须是标准 Anthropic 格式（skill-creator 规范），方便维护与生态兼容；与 flow 项目内 agent.md（prompt 约定）严格区分
+- 写侧缺口：agent 能 run/干预但不能建 agent/起项目/校验 yaml
+
+### 结论
+
+选形态 A（ADR-0007）。skill 源文件 `skills/flow/SKILL.md` 手动拷贝分发；新增 validate/agent/init/clean 四组写侧命令。TUI 暂缓（tmux attach 即 TUI，Web 面板归阶段三）。
+
+### 未决问题
+
+- [ ] SKILL.md 真机验收："无知会话"实测自主编排，预期 1-2 轮修订
+- [ ] skill 分发自动化（若手动拷贝成为负担再做 install）
+
+### 关联
+
+- 决策：`decisions.md` / ADR-0007
+- 计划：`development-plan.md` / 阶段二
+
 ## 2026-09-14：子流水线模式（动态 fan-out 的引擎设计）
 
 ### 背景

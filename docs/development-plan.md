@@ -82,6 +82,7 @@
 - [ ] flow.yaml 模板与 `flow init` 脚手架
 - [ ] 状态事件流（为 Web UI 铺路）：编排器状态变化输出结构化事件
 - [x] 子流水线模式（动态 fan-out 的引擎支撑）：`flow run -f` + run 内 pipeline 快照（ADR-0006，2026-09-14）
+- [x] agent 自编排生态（ADR-0007，2026-09-14）：`flow validate` / `flow agent new/list/show` / `flow init`（骨架模板）/ `flow clean`；`skills/flow/SKILL.md`（标准 Anthropic skill 格式，手动拷贝分发）——待"无知会话"真机验收
 
 ## 阶段三：Web UI
 

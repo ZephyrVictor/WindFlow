@@ -7,6 +7,66 @@ every parameter explicitly (no hidden defaults) so prompts stay greppable.
 from __future__ import annotations
 
 
+def agent_md_template(agent_name: str) -> str:
+    return f"""# {agent_name} — <一句话角色定位>
+
+## 角色
+<你是谁、擅长什么、本流水线里承担什么职责。写具体，不写空话。>
+
+## 工作方式
+<按步骤写：1. 读什么输入（含路径约定）；2. 怎么处理；3. 产出写到哪（绝对路径）。
+产出文件名与路径必须明确到可以直接引用。>
+
+## 共享记忆约定
+<追加 `runs/<run-id>/memory/findings.md`（追加式，署名 {agent_name}，不改他人条目）。
+如适用，说明条目标记约定（如 [major]/[minor]/[chain]）。不适用则删除本节。>
+
+## 约束
+<边界与纪律：只做什么不做什么、证据标准（如"结论必须可复核，写函数名/地址"）、
+产出路径一律写绝对路径。>
+"""
+
+
+INIT_FLOW_YAML_TEMPLATE = """# flow.yaml — 两节点串行骨架（编辑后运行 `flow validate` 校验）
+# 1. 先 `flow agent new <name>` 创建引用的 agent 定义
+# 2. 取消注释并按需修改节点
+# 3. `flow validate` 通过后 `flow run` 启动
+name: my-pipeline
+control: true
+
+# nodes:
+#   first:
+#     agent: <agent-name>        # 必须存在于 agents/<agent-name>/agent.md
+#     backend: claude            # claude | codex
+#     task: <一句话任务描述>
+#     inject: [memory/context.md]
+#     gate: false                # true = 完成后人工放行
+#
+#   second:
+#     agent: <agent-name>
+#     backend: claude
+#     task: <一句话任务描述>
+#     needs: [first]             # 依赖：first 完成后才启动
+#     inject: [memory/context.md, memory/findings.md, agents/first/summary.md]
+"""
+
+INIT_GITIGNORE = """runs/
+workdir/*
+!workdir/.gitkeep
+"""
+
+
+def init_next_steps(project_dir: str) -> str:
+    return f"""项目骨架已生成：{project_dir}
+
+下一步：
+1. flow agent new <name>       # 创建 agent 定义（四段式模板）
+2. 编辑 flow.yaml              # 取消注释、填节点
+3. flow validate               # 校验通过再启动
+4. flow run                    # 启动（tmux session flow-<run-id>）
+"""
+
+
 def node_task_prompt(
     agent_name: str,
     agent_md_path: str,

@@ -159,6 +159,111 @@ def cmd_inject(args) -> None:
     print(f"queued message for {args.node}")
 
 
+# -- write-side commands ----------------------------------------------------
+
+
+def cmd_validate(args) -> None:
+    f = (
+        Path(args.file).resolve()
+        if args.file
+        else _project(args).pipeline_file
+    )
+    try:
+        cfg = load_config(f)
+    except ConfigError as e:
+        sys.exit(f"invalid: {e}")
+    order = cfg.topological_order()
+    print(f"valid: {cfg.name} ({len(cfg.nodes)} nodes)")
+    for n in order:
+        c = cfg.nodes[n]
+        needs = ",".join(c.needs) or "-"
+        gate = " [gate]" if c.gate else ""
+        print(f"  {n:<20} agent={c.agent:<16} backend={c.backend.value:<6} needs={needs}{gate}")
+
+
+def cmd_agent(args) -> None:
+    project = _project(args)
+    if args.agent_cmd == "list":
+        agents_dir = project.agents_dir
+        if not agents_dir.is_dir():
+            sys.exit(f"no agents dir at {agents_dir}")
+        found = False
+        for d in sorted(agents_dir.iterdir()):
+            md = d / C.AGENT_MD
+            if d.is_dir() and md.is_file():
+                first = next(
+                    (l.lstrip("# ").strip() for l in md.read_text().splitlines() if l.strip()),
+                    "",
+                )
+                print(f"{d.name:<24} {first[:60]}")
+                found = True
+        if not found:
+            print("no agents defined")
+    elif args.agent_cmd == "show":
+        md = project.agent_def_dir(args.name) / C.AGENT_MD
+        if not md.is_file():
+            sys.exit(f"no agent definition: {md}")
+        sys.stdout.write(md.read_text())
+    elif args.agent_cmd == "new":
+        from flow import prompts
+
+        d = project.agent_def_dir(args.name)
+        md = d / C.AGENT_MD
+        if md.exists():
+            sys.exit(f"already exists: {md}")
+        d.mkdir(parents=True, exist_ok=True)
+        md.write_text(prompts.agent_md_template(args.name))
+        print(f"created {md}")
+
+
+def cmd_init(args) -> None:
+    from flow import prompts
+
+    root = Path(args.dir).resolve() if args.dir else Path.cwd()
+    if (root / C.PIPELINE_FILE).exists():
+        sys.exit(f"refusing to overwrite: {root / C.PIPELINE_FILE}")
+    (root / C.AGENTS_DIR).mkdir(parents=True, exist_ok=True)
+    (root / C.WORKDIR_NAME).mkdir(parents=True, exist_ok=True)
+    (root / C.WORKDIR_NAME / ".gitkeep").touch()
+    (root / C.PIPELINE_FILE).write_text(prompts.INIT_FLOW_YAML_TEMPLATE)
+    gi = root / ".gitignore"
+    if not gi.exists():
+        gi.write_text(prompts.INIT_GITIGNORE)
+    print(prompts.init_next_steps(str(root)))
+
+
+def cmd_clean(args) -> None:
+    project = _project(args)
+    cleaned = 0
+    for name in tmux.list_flow_sessions():
+        run_id = name[len(C.TMUX_SESSION_PREFIX):]
+        state_file = RunPaths(project, run_id).state_file
+        if not state_file.is_file():
+            continue  # belongs to another project or still starting
+        if RunState.load(state_file).all_terminal():
+            tmux.kill_session(name)
+            print(f"killed session {name} (run finished)")
+            cleaned += 1
+    if not args.runs and not cleaned:
+        print("nothing to clean (no finished-run sessions)")
+    if args.runs is not None:
+        runs = project.runs_dir
+        if not runs.is_dir():
+            return
+        ids = sorted(p.name for p in runs.iterdir() if p.is_dir())
+        doomed = ids[: max(len(ids) - args.runs, 0)]
+        if not doomed:
+            print(f"only {len(ids)} runs, keeping all")
+            return
+        for run_id in doomed:
+            print(f"delete runs/{run_id}? [y/N]", end=" ", flush=True)
+            if input().strip().lower() == "y":
+                import shutil
+
+                shutil.rmtree(runs / run_id)
+                print(f"deleted runs/{run_id}")
+
+
 def build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(prog="flow", description="multi-agent pipeline orchestrator")
     p.add_argument("--version", action="version", version=__version__)
@@ -215,6 +320,29 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("message")
     sp.add_argument("run_id", nargs="?")
     sp.set_defaults(func=cmd_inject)
+
+    sp = sub.add_parser("validate", help="validate a pipeline yaml")
+    sp.add_argument("file", nargs="?", help="pipeline file (default: project flow.yaml)")
+    sp.set_defaults(func=cmd_validate)
+
+    sp = sub.add_parser("agent", help="manage agent definitions")
+    common(sp)
+    agent_sub = sp.add_subparsers(dest="agent_cmd", required=True)
+    for cmd, help_ in [("list", "list agents"), ("show", "print agent.md"), ("new", "create agent from template")]:
+        s = agent_sub.add_parser(cmd, help=help_)
+        common(s)
+        if cmd in ("show", "new"):
+            s.add_argument("name")
+    sp.set_defaults(func=cmd_agent)
+
+    sp = sub.add_parser("init", help="scaffold a new flow project")
+    sp.add_argument("dir", nargs="?", help="target directory (default: cwd)")
+    sp.set_defaults(func=cmd_init)
+
+    sp = sub.add_parser("clean", help="clean up finished-run tmux sessions (and optionally old runs)")
+    common(sp)
+    sp.add_argument("--runs", type=int, metavar="N", help="also delete all but the newest N run directories (interactive)")
+    sp.set_defaults(func=cmd_clean)
 
     return p
 
