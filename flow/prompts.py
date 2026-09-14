@@ -57,13 +57,19 @@ workdir/*
 
 
 def init_next_steps(project_dir: str) -> str:
-    return f"""项目骨架已生成：{project_dir}
+    return f"""项目骨架已生成：{project_dir}（含 control agent 定义）
 
 下一步：
 1. flow agent new <name>       # 创建 agent 定义（四段式模板）
 2. 编辑 flow.yaml              # 取消注释、填节点
 3. flow validate               # 校验通过再启动
 4. flow run                    # 启动（tmux session flow-<run-id>）
+"""
+
+
+CONTROL_AGENT_MD = """# control agent（项目级角色定义）
+
+你是流水线总控 agent。具体的系统提示（流水线定义、运行时目录、可用命令）会追加在本文末尾。
 """
 
 

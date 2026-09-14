@@ -223,6 +223,10 @@ def cmd_init(args) -> None:
     if (root / C.PIPELINE_FILE).exists():
         sys.exit(f"refusing to overwrite: {root / C.PIPELINE_FILE}")
     (root / C.AGENTS_DIR).mkdir(parents=True, exist_ok=True)
+    control_md = root / C.AGENTS_DIR / C.CONTROL_NODE / C.AGENT_MD
+    if not control_md.exists():
+        control_md.parent.mkdir(parents=True, exist_ok=True)
+        control_md.write_text(prompts.CONTROL_AGENT_MD)
     (root / C.WORKDIR_NAME).mkdir(parents=True, exist_ok=True)
     (root / C.WORKDIR_NAME / ".gitkeep").touch()
     (root / C.PIPELINE_FILE).write_text(prompts.INIT_FLOW_YAML_TEMPLATE)
@@ -322,6 +326,7 @@ def build_parser() -> argparse.ArgumentParser:
     sp.set_defaults(func=cmd_inject)
 
     sp = sub.add_parser("validate", help="validate a pipeline yaml")
+    common(sp)
     sp.add_argument("file", nargs="?", help="pipeline file (default: project flow.yaml)")
     sp.set_defaults(func=cmd_validate)
 

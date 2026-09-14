@@ -33,12 +33,14 @@ flow runs multi-agent pipelines where each agent is a native `claude` or `codex`
 ## 2. Creating a project (standard sequence)
 
 ```bash
-flow init <dir>               # scaffold: flow.yaml template + agents/ + workdir/ + .gitignore
+flow init <dir>               # scaffold: flow.yaml template + agents/ (incl. control) + workdir/ + .gitignore
 flow agent new <name> -p <dir>   # four-section agent.md template (role/workflow/memory/constraints)
 # ... edit agent.md content and flow.yaml ...
-flow validate -p <dir>        # MUST pass before running
-flow run -p <dir>             # starts tmux session flow-<run-id>, blocks until done/paused
+flow validate [-p <dir>]      # MUST pass before running
+flow run [-p <dir>]           # starts tmux session flow-<run-id>, blocks until done/paused
 ```
+
+`flow init` pre-creates `agents/control/agent.md` (the persistent control window's definition, required by `control: true`). Customizing it is optional.
 
 **Always `flow validate` after editing any yaml.** Validation errors name the exact node and field.
 

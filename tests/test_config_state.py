@@ -240,6 +240,7 @@ class TestScaffoldCommands:
         args.func(args)
         assert (target / C.PIPELINE_FILE).is_file()
         assert (target / C.AGENTS_DIR).is_dir()
+        assert (target / C.AGENTS_DIR / C.CONTROL_NODE / C.AGENT_MD).is_file()
         assert (target / C.WORKDIR_NAME / ".gitkeep").is_file()
         assert "runs/" in (target / ".gitignore").read_text()
         # init twice refuses to overwrite
