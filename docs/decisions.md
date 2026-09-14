@@ -110,3 +110,14 @@
 - **影响**：对代码、数据、运维、团队和后续演进有什么影响？
 - **相关文档/变更**：链接到实现或其他文档
 ```
+
+## ADR-0008 skipped 终态与 flow skip（2026-09-14）
+
+**背景**：rehost 复现阶段（iot_hunter 后置）中 FirmAE 起环境失败常见；原引擎 failed 节点永久卡住下游，finalizer 无法产出"静态报告 + rehost 失败原因"。
+
+**决策**：
+- 新增节点终态 `skipped`：仅能由人工经 `flow skip <node> [reason]` 从 failed/waiting-human 状态发起（引擎绝不全自动跳过）。
+- 下游依赖检查由 `is DONE` 改为 `satisfied`（DONE 或 SKIPPED）；skipped 节点不产 summary，下游按既有"inject 文件不存在则跳过"约定容忍。
+- run 暂停时 `flow status` 打印 control session 的 tmux attach 指令——决策权在人（可直接与 control agent 对话），引擎只提供原语。
+
+**否决的替代**：yaml 级 `optional: true` 字段——把"失败怎么办"提前到声明期决定，违背"失败暂停等人"的既定哲学。

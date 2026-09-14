@@ -150,6 +150,16 @@ def cmd_retry(args) -> None:
     print(f"node {args.node} reset to pending; run `flow resume`")
 
 
+def cmd_skip(args) -> None:
+    _, _, orch = _load_run_context(_run(args))
+    reason = " ".join(args.reason) if args.reason else None
+    try:
+        orch.skip(args.node, reason)
+    except OrchestratorError as e:
+        sys.exit(str(e))
+    print(f"node {args.node} skipped (downstream proceeds without it); run `flow resume`")
+
+
 def cmd_inject(args) -> None:
     _, _, orch = _load_run_context(_run(args))
     try:
@@ -317,6 +327,13 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("node")
     sp.add_argument("run_id", nargs="?")
     sp.set_defaults(func=cmd_retry)
+
+    sp = sub.add_parser("skip", help="give up a failed/waiting-human node; downstream proceeds")
+    common(sp)
+    sp.add_argument("node")
+    sp.add_argument("reason", nargs="*", help="why it is skipped (recorded in state)")
+    sp.add_argument("run_id", nargs="?")
+    sp.set_defaults(func=cmd_skip)
 
     sp = sub.add_parser("inject", help="queue a message to a running node")
     common(sp)

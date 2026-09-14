@@ -192,6 +192,23 @@ class TestRunState:
         st.set_status("n1", NodeStatus.RUNNING)
         assert st.node("n1").attempts == 2
 
+    def test_skipped_is_terminal_and_satisfied(self, tmp_path: Path):
+        st = RunState(pipeline="t", run_id="r1")
+        st.set_status("n1", NodeStatus.SKIPPED)
+        assert st.node("n1").status.terminal
+        assert st.node("n1").status.satisfied
+        assert NodeStatus.FAILED is not None and not NodeStatus.FAILED.satisfied
+        f = tmp_path / "state.json"
+        st.save(f)
+        loaded = RunState.load(f)
+        assert loaded.node("n1").status is NodeStatus.SKIPPED
+
+    def test_all_terminal_with_skipped(self, tmp_path: Path):
+        st = RunState(pipeline="t", run_id="r1")
+        st.set_status("n1", NodeStatus.DONE)
+        st.set_status("n2", NodeStatus.SKIPPED)
+        assert st.all_terminal()
+
 
 class TestPipelineFileResolution:
     def test_run_local_snapshot_preferred(self, tmp_path: Path):

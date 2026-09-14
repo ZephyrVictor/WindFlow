@@ -83,6 +83,7 @@ Validation rules (all reported with node+field): agent must exist; backend in {c
 | `flow log <node> [run_id]` | open the node's tty.log in less |
 | `flow approve <node>` | release a waiting-human gate |
 | `flow retry <node>` | reset node to pending (destroys its window → fresh session); then `flow resume` |
+| `flow skip <node> [reason]` | give up a failed/waiting-human node; downstream treats it as satisfied and proceeds; then `flow resume` |
 | `flow inject <node> <message>` | queue a message delivered to a running node |
 | `flow resume` / `flow stop` | continue a paused run / kill session + pause |
 | `flow validate [file]` | validate yaml |
@@ -92,6 +93,7 @@ Validation rules (all reported with node+field): agent must exist; backend in {c
 **Intervention decision guide:**
 - Node produced wrong/partial work but is still running → `flow inject` with corrective instructions
 - Node finished wrong / context polluted (e.g. bad input poisoned the conversation) → `flow retry` (fresh session, not inject)
+- Node failed / blocked and retrying won't help (e.g. environment won't come up) but downstream should still run → `flow skip <node> <reason>` (downstream proceeds without its summary; downstream agents must tolerate a missing summary — the task prompt says "skip files that don't exist")
 - Human sign-off needed on quality → design the node with `gate: true` from the start
 - Interactive debugging → `flow attach <node>` (you talk to that CLI directly; orchestrator pauses deliveries to it)
 

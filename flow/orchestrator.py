@@ -179,7 +179,7 @@ class Orchestrator:
             if st.status is not NodeStatus.PENDING:
                 continue
             if all(
-                self.state.node(d).status is NodeStatus.DONE
+                self.state.node(d).status.satisfied
                 for d in cfg.needs
             ):
                 self._launch(name, cfg)
@@ -263,6 +263,20 @@ class Orchestrator:
             self.state.paused = False
         self.state.save(self.run.state_file)
 
+    def skip(self, node: str, reason: str | None = None) -> None:
+        """Human gives up on a node; downstream treats it as satisfied."""
+        st = self.state.node(node)
+        if st.status is not NodeStatus.FAILED and st.status is not NodeStatus.WAITING_HUMAN:
+            raise OrchestratorError(
+                f"node {node} is {st.status.value}; only failed/waiting-human nodes can be skipped"
+            )
+        self._reset_window(node)
+        self.state.set_status(node, NodeStatus.SKIPPED)
+        st.error = reason or st.error
+        if self.state.paused:
+            self.state.paused = False
+        self.state.save(self.run.state_file)
+
     def retry(self, node: str) -> None:
         st = self.state.node(node)
         if st.status not in (
@@ -292,6 +306,8 @@ class Orchestrator:
         lines = [f"run {self.run.run_id} (pipeline: {self.cfg.name})"]
         if self.state.paused:
             lines.append("PAUSED — see failed nodes / waiting-human gates")
+            lines.append(f"talk to the control agent: tmux attach-session -t {self.run.tmux_session_name}")
+            lines.append(f"or intervene directly: flow status/retry/skip/inject {self.run.run_id}")
         for name in self.cfg.topological_order():
             st = self.state.node(name)
             cfg = self.cfg.nodes[name]

@@ -18,10 +18,16 @@ class NodeStatus(str, Enum):
     WAITING_HUMAN = "waiting-human"
     DONE = "done"
     FAILED = "failed"
+    SKIPPED = "skipped"
 
     @property
     def terminal(self) -> bool:
-        return self in (NodeStatus.DONE, NodeStatus.FAILED)
+        return self in (NodeStatus.DONE, NodeStatus.FAILED, NodeStatus.SKIPPED)
+
+    @property
+    def satisfied(self) -> bool:
+        """Downstream may launch: DONE normally, SKIPPED after human gave up."""
+        return self in (NodeStatus.DONE, NodeStatus.SKIPPED)
 
 
 PIPELINE_FILE = "flow.yaml"
