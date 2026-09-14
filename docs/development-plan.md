@@ -81,13 +81,7 @@
 - [ ] rehost（FirmAE→PoC）流水线接入作为第二个真实用例
 - [ ] flow.yaml 模板与 `flow init` 脚手架
 - [ ] 状态事件流（为 Web UI 铺路）：编排器状态变化输出结构化事件
-
-### 进行中：iot_hunter 固件漏洞挖掘流水线（2026-09-14）
-
-- [x] 引擎：`flow run -f` + run 内 pipeline 快照 + `find_project_root` 跳过 runs/（ADR-0006）
-- [x] iot_hunter 项目脚手架（`/home/fjw/workspace/flow/iot_hunter/`，独立项目目录）：unpacker(gate) → planner(生成 skills + 子流水线并自跑) → correlator → reporter，子流水线 audit 节点 ≤4 并行共享父 run memory
-- [ ] 真机验收：c2950 单固件端到端跑通，产出 artifacts/report.md
-- [ ] 通过后批量跑其余固件（AP3702 次之；.aes/.SPA 预期降级记录）
+- [x] 子流水线模式（动态 fan-out 的引擎支撑）：`flow run -f` + run 内 pipeline 快照（ADR-0006，2026-09-14）
 
 ## 阶段三：Web UI
 

@@ -28,37 +28,29 @@
 - 决策：`decisions.md` / ADR-XXXX（如适用）
 ```
 
-## 2026-09-14：iot_hunter 子流水线模式（动态 fan-out）
+## 2026-09-14：子流水线模式（动态 fan-out 的引擎设计）
 
 ### 背景
 
-编排固件漏洞挖掘流水线（iot_hunter）：unpacker → planner → audit fan-out → correlator → reporter。audit 工单数量（binary × 角度）取决于固件内容，运行时才知道，但 flow.yaml 是静态 DAG。另讨论了拼链记忆是否需要单独文件。
+运行时才知道节点数量的编排场景（如按固件内容决定审计工单数）需要动态 fan-out，但 flow.yaml 是静态 DAG。以固件漏洞挖掘流水线为首个需求来源。
 
 ### 讨论要点
 
-- 动态节点三种方案：固定审计池 / 子流水线（agent 生成子 yaml 再 flow run -f）/ 引擎动态节点
-- 角度（逻辑/命令注入/内存破坏/认证绕过）进 skill 的 checklist，不做独立 DAG 节点（避免 DAG 爆炸、同 binary 多角度共享上下文）
-- 拼链记忆：chains.md 单独文件 vs findings.md 内 `[chain]` 标记条目——用户拍板维持三文件简洁性
+- 动态节点三种方案：固定节点池 / 子流水线（agent 生成子 yaml 再 `flow run -f`）/ 引擎原生动态节点
+- 多角度审计（逻辑/命令注入/内存破坏/认证绕过）进 skill 的 checklist，不做独立 DAG 节点（避免 DAG 爆炸、同目标多角度共享上下文）——这是应用层约定，不进引擎
+- 拼链记忆是否单独文件：维持 context/findings/decisions 三文件简洁性，链线索以 `[chain]` 标记条目并入 findings.md
 
 ### 结论
 
-采用子流水线模式（ADR-0006）：planner 生成 skills + 子 flow.yaml（audit 节点 ≤4）并自己同步执行 `flow run -f`；链线索以 `[chain]` 条目并入 findings.md。iot_hunter 为独立项目目录（`/home/fjw/workspace/flow/iot_hunter/`）。
+引擎采用子流水线模式（ADR-0006）：上游 agent 生成子 flow.yaml 并自行同步执行 `flow run -f`；子 run 经 inject 绝对路径共享父 run memory。首个使用方为 iot_hunter 固件审计流水线（独立于本仓库的应用项目）。
 
 ### 未决问题
 
-- [ ] planner 生成子 yaml 非法时的自修复能力（真机验收观察）
-- [ ] 剩余 6 个固件批量接入（c2950 验收通过后）
-
-### 行动项
-
-- [x] 引擎：flow run -f、run 内 pipeline 快照、find_project_root 跳过 runs/（负责人：Claude，完成 2026-09-14）
-- [x] iot_hunter 脚手架：6 个 agent.md + 父 flow.yaml + c2950 固件（完成 2026-09-14）
-- [ ] c2950 端到端真机验收
+- [ ] 生成方 agent 产出非法子 yaml 的自修复能力（真机验收观察）
 
 ### 关联
 
 - 架构：`architecture.md` / 目录结构、动态 fan-out
-- 计划：`development-plan.md` / 阶段二 iot_hunter
 - 决策：`decisions.md` / ADR-0006
 
 ## 2026-09-14：阶段一（MVP）实现完成
