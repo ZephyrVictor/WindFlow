@@ -1,0 +1,7 @@
+runs/
+workdir/*
+!workdir/.gitkeep
+__pycache__/
+*.egg-info/
+.venv/
+.claude/settings.local.json

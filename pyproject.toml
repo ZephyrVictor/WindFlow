@@ -1,0 +1,19 @@
+[project]
+name = "flow-orch"
+version = "0.1.0"
+description = "Lightweight multi-agent orchestrator backed by Claude Code / Codex CLI in tmux"
+requires-python = ">=3.12"
+dependencies = ["PyYAML>=6.0"]
+
+[project.scripts]
+flow = "flow.cli:main"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["flow*"]
+
+[dependency-groups]
+dev = ["pytest>=8.0"]
