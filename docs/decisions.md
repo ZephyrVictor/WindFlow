@@ -68,6 +68,19 @@
   5. **claude trust 对话框**：用 `--dangerously-skip-permissions` 跳过。
 - **影响**：flow/driver.py、flow/session.py 的实现直接来自以上结论。
 
+## ADR-0006：子流水线模式（动态 fan-out 由 agent 生成静态 DAG 实现）
+
+- **状态**：已接受
+- **日期**：2026-09-14
+- **背景**：iot_hunter 等流水线需要在运行时根据上游产出动态决定审计节点数量（planner 按 binary × 角度 fan-out），但 flow.yaml 是静态 DAG，引擎不支持运行时加节点。
+- **决策**：
+  1. 采用**子流水线**模式：planner agent 生成子 flow.yaml（audit 节点 ≤4，超限按优先级裁剪）放在父 run 的 `plan/` 下，然后用 `flow run -f <file>` 同步执行到完成，子节点通过 inject 绝对路径共享父 run 的 memory，产物（findings 追加）直接落父 run。
+  2. 引擎配套：`flow run` 增加 `-f/--pipeline`；`initialize()` 把生效 yaml 快照到 run 内 `pipeline.yaml`，status/approve/retry 优先按 run 内副本解析（否则子 run 会按项目默认 yaml 解析出错误节点集）；`find_project_root` 跳过 `runs/` 内的 flow.yaml（planner 生成的子 yaml 不是项目根）。
+  3. 拼链不新增 memory 文件：维持 context/findings/decisions 三文件，链线索以 `[chain]` 标记条目追加进 findings.md（格式：入口可控性 → 数据流 → sink → 前置条件 → 置信度）。
+- **备选方案**：固定审计池（并行度锁死、工单与窗口对应不直观）；引擎支持动态节点（阶段二以后的过度设计）。
+- **原因**：节点=工单一一对应，attach/retry/inject 全部自然复用；引擎改动最小（两处）；DAG 大小随目标伸缩。
+- **影响**：flow/cli.py、flow/orchestrator.py、flow/paths.py；planner 的 agent.md 内嵌子 yaml 模板与 skill schema；首个用例 iot_hunter（独立项目目录）。
+
 ## ADR 模板
 
 复制以下模板，使用递增编号：

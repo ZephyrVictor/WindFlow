@@ -60,12 +60,14 @@ class Orchestrator:
         cfg: PipelineConfig,
         state: RunState,
         driver: BackendDriver,
+        pipeline_file: Path | None = None,
     ):
         self.project = project
         self.run = run
         self.cfg = cfg
         self.state = state
         self.driver = driver
+        self.pipeline_file = pipeline_file or project.pipeline_file
         self.inject_queue = InjectQueue.load(
             run.root / C.INJECT_QUEUE_FILE
         )
@@ -82,6 +84,10 @@ class Orchestrator:
     def initialize(self) -> None:
         """Fresh run: create dirs, shared memory, node files, tmux session."""
         self.run.create()
+        # snapshot the effective pipeline so status/approve/retry resolve
+        # the same node set even for `-f <file>` runs
+        if not self.run.pipeline_file.exists():
+            self.run.pipeline_file.write_text(self.pipeline_file.read_text())
         flow_memory.init_shared_memory(self.run, self.cfg)
         for cfg in self.cfg.nodes.values():
             flow_memory.prepare_node_files(self.run, self.project, cfg)

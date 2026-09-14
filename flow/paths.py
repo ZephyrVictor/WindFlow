@@ -52,9 +52,15 @@ class ProjectPaths:
         return self.agents_dir / agent_name
 
     def find_project_root(self) -> "ProjectPaths":
-        """Project root is the nearest ancestor containing flow.yaml."""
+        """Project root is the nearest ancestor containing flow.yaml.
+
+        flow.yaml files under a runs/ directory (e.g. planner-generated
+        sub-pipelines) are run artifacts, not project roots — skipped.
+        """
         cur = self.root.resolve()
         for cand in (cur, *cur.parents):
+            if C.RUNS_DIR in cand.parts:
+                continue  # inside runs/ → run artifact, not a project root
             if (cand / C.PIPELINE_FILE).is_file():
                 return ProjectPaths(cand)
         raise PathError(f"no {C.PIPELINE_FILE} found in {cur} or its ancestors")
@@ -84,6 +90,10 @@ class RunPaths:
     @property
     def state_file(self) -> Path:
         return self.root / C.STATE_FILE
+
+    @property
+    def pipeline_file(self) -> Path:
+        return self.root / C.RUN_PIPELINE_FILE
 
     @property
     def tmux_conf(self) -> Path:

@@ -37,6 +37,7 @@ STATE_FILE = "state.json"
 TMUX_CONF = ".tmux.conf"
 ATTACH_LOCK = "attach.lock"
 INJECT_QUEUE_FILE = "inject-queue.json"
+RUN_PIPELINE_FILE = "pipeline.yaml"
 CONTROL_NODE = "control"
 
 # node-relative names

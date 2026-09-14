@@ -191,3 +191,41 @@ class TestRunState:
         assert st.node("n1").attempts == 1
         st.set_status("n1", NodeStatus.RUNNING)
         assert st.node("n1").attempts == 2
+
+
+class TestPipelineFileResolution:
+    def test_run_local_snapshot_preferred(self, tmp_path: Path):
+        from flow.cli import _pipeline_file
+        from flow.paths import ProjectPaths, RunPaths
+
+        project = ProjectPaths(tmp_path)
+        run = RunPaths(project, "r1")
+        run.create()
+        assert _pipeline_file(run) == project.pipeline_file
+        run.pipeline_file.write_text("snapshot")
+        assert _pipeline_file(run) == run.pipeline_file
+        override = tmp_path / "other.yaml"
+        assert _pipeline_file(run, override) == override
+
+    def test_load_config_from_sub_run_dir_finds_project_root(
+        self, project: Path
+    ):
+        write_pipeline(project, "name: root\nnodes: {}")
+        sub = project / C.RUNS_DIR / "r1" / "plan"
+        sub.mkdir(parents=True)
+        f = sub / C.PIPELINE_FILE
+        f.write_text(
+            textwrap.dedent(
+                """
+                name: sub
+                nodes:
+                  s1:
+                    agent: a1
+                    backend: claude
+                    task: sub task
+                """
+            )
+        )
+        cfg = load_config(f)
+        assert cfg.name == "sub"
+        assert list(cfg.nodes) == ["s1"]

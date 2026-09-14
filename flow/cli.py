@@ -38,8 +38,17 @@ def _run(args) -> RunPaths:
     return RunPaths(project, run_id)
 
 
+def _pipeline_file(run: RunPaths, override: Path | None = None) -> Path:
+    """Effective pipeline: -f override > run-local snapshot > project default."""
+    if override is not None:
+        return override
+    if run.pipeline_file.is_file():
+        return run.pipeline_file
+    return run.project.pipeline_file
+
+
 def _load_run_context(run: RunPaths):
-    cfg = load_config(run.project.pipeline_file)
+    cfg = load_config(_pipeline_file(run))
     state = RunState.load(run.state_file)
     driver = BackendDriver(run.project, run, {n: c.env for n, c in cfg.nodes.items()})
     orch = Orchestrator(run.project, run, cfg, state, driver)
@@ -48,12 +57,18 @@ def _load_run_context(run: RunPaths):
 
 def cmd_run(args) -> None:
     project = _project(args)
-    cfg = load_config(project.pipeline_file)
+    pipeline_file = (
+        Path(args.pipeline).resolve() if getattr(args, "pipeline", None) else None
+    )
+    cfg = load_config(pipeline_file or project.pipeline_file)
     run_id = new_run_id()
     run = RunPaths(project, run_id)
     state = RunState(pipeline=cfg.name, run_id=run_id)
     driver = BackendDriver(project, run, {n: c.env for n, c in cfg.nodes.items()})
-    orch = Orchestrator(project, run, cfg, state, driver)
+    orch = Orchestrator(
+        project, run, cfg, state, driver,
+        pipeline_file=pipeline_file or project.pipeline_file,
+    )
     orch.initialize()
     print(f"run {run_id} started; tmux session: {run.tmux_session_name}")
     try:
@@ -154,6 +169,10 @@ def build_parser() -> argparse.ArgumentParser:
 
     sp = sub.add_parser("run", help="start a new run")
     common(sp)
+    sp.add_argument(
+        "-f", "--pipeline",
+        help="pipeline yaml to run (default: project flow.yaml)",
+    )
     sp.set_defaults(func=cmd_run)
 
     for name, help_ in [
