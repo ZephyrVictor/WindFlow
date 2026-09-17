@@ -1,0 +1,39 @@
+# retest — 环境修复后的全量复测 + 补审 + 最终报告
+# 用法: flow run -p . -f flow-retest.yaml
+name: iot-hunter-retest
+control: true
+
+nodes:
+  retester:
+    agent: verifier
+    backend: claude
+    task: 在已修复的 rehost 环境（见 task.md 详单）上复测全部未闭环漏洞，结果追加 findings.md
+    retry: 1
+    inject:
+      - runs/20260915-095054/memory/context.md
+      - runs/20260915-095054/memory/findings.md
+      - agents/verifier/agent.md
+
+  auditor:
+    agent: auditor
+    backend: claude
+    task: 补审静态遗留线索（详单见 task.md），结果追加 findings.md
+    retry: 1
+    inject:
+      - runs/20260915-095054/memory/context.md
+      - runs/20260915-095054/memory/findings.md
+      - runs/20260914-141054/artifacts/report.md
+      - runs/20260914-141054/artifacts/vulns.md
+
+  finalizer:
+    agent: finalizer
+    backend: claude
+    task: 综合全部动静结果产出最终漏洞报告 artifacts/final-report.md 与可复现 PoC 集 artifacts/pocs/
+    needs: [retester, auditor]
+    gate: true
+    inject:
+      - runs/20260915-095054/memory/context.md
+      - runs/20260915-095054/memory/findings.md
+      - runs/20260915-095054/memory/decisions.md
+      - runs/20260914-141054/artifacts/report.md
+      - runs/20260914-141054/artifacts/vulns.md

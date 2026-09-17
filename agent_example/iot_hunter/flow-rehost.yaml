@@ -1,0 +1,44 @@
+# rehost continuation — 接在已完成审计 run 20260914-141054 之后
+# 用法: flow run -p . -f flow-rehost.yaml
+name: iot-hunter-rehost
+control: true
+
+nodes:
+  rehoster:
+    agent: rehoster
+    backend: claude
+    task: 按 backends.md tag 路由选择仿真后端并搭建环境，环境契约写入 memory/context.md
+    retry: 1
+    inject:
+      - /home/fjw/workspace/flow/iot_hunter/runs/20260914-141054/memory/context.md
+      - /home/fjw/workspace/flow/iot_hunter/runs/20260914-141054/memory/findings.md
+
+  poc-planner:
+    agent: poc-planner
+    backend: claude
+    task: 制定 PoC 工单，生成子流水线并同步执行到完成
+    needs: [rehoster]
+    inject:
+      - memory/context.md
+      - memory/findings.md
+      - agents/rehoster/backends.md
+      - memory/decisions.md
+      - agents/rehoster/summary.md
+      - /home/fjw/workspace/flow/iot_hunter/runs/20260914-141054/artifacts/report.md
+      - /home/fjw/workspace/flow/iot_hunter/runs/20260914-141054/memory/findings.md
+
+  finalizer:
+    agent: finalizer
+    backend: claude
+    task: 综合静态与动态结果产出最终结论 artifacts/final-report.md
+    needs: [poc-planner]
+    gate: true
+    inject:
+      - memory/context.md
+      - memory/findings.md
+      - agents/rehoster/backends.md
+      - memory/decisions.md
+      - agents/poc-planner/summary.md
+      - /home/fjw/workspace/flow/iot_hunter/runs/20260914-141054/artifacts/report.md
+      - /home/fjw/workspace/flow/iot_hunter/runs/20260914-141054/artifacts/vulns.md
+      - /home/fjw/workspace/flow/iot_hunter/runs/20260914-141054/memory/findings.md
