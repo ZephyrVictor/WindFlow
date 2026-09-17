@@ -42,7 +42,13 @@ class RunState:
             st.finished_at = _now()
 
     def all_terminal(self) -> bool:
-        return all(s.status.terminal for s in self.nodes.values())
+        # control is a persistent conversation node, not a pipeline node;
+        # exclude it from the completion check
+        return all(
+            s.status.terminal
+            for n, s in self.nodes.items()
+            if n != C.CONTROL_NODE
+        )
 
     def save(self, path: Path) -> None:
         data = asdict(self)

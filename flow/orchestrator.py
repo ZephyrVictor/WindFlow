@@ -123,6 +123,9 @@ class Orchestrator:
             flow_control.launch_control(
                 self.run, self.project, self.cfg, self.driver
             )
+            # control is not a pipeline node; track it as running so that
+            # `flow inject control ...` (e.g. from the watchdog) is accepted
+            self.state.set_status(C.CONTROL_NODE, NodeStatus.RUNNING)
         self.state.save(self.run.state_file)
 
     def request_stop(self) -> None:
@@ -153,6 +156,14 @@ class Orchestrator:
             self.state.__dict__.update(
                 RunState.load(self.run.state_file).__dict__
             )
+        # external CLI processes (flow inject) write the queue file directly;
+        # merge new entries so they get delivered by _tick
+        on_disk = InjectQueue.load(self.run.root / C.INJECT_QUEUE_FILE)
+        for node, msgs in on_disk.items.items():
+            queued = self.inject_queue.items.setdefault(node, [])
+            for m in msgs:
+                if m not in queued:
+                    queued.append(m)
 
     def _tick(self) -> None:
         # 1. refresh running nodes
