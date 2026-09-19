@@ -1,0 +1,53 @@
+name: iot-hunter-c3750-static
+control: true
+
+nodes:
+  unpacker:
+    agent: unpacker
+    backend: claude
+    task: 本轮唯一目标固件 workdir/firmwares/c3750-ipservicesk9-tar.150-1.SE.tar（Cisco Catalyst 3750 IOS 15.0(1)SE ipservicesk9，MZIP 单体镜像）。解包到 workdir/extracted/c3750/，识别设备与版本，产出攻击面盘点；workdir/firmwares/ 下其他固件属于别的轮次，不要动
+    gate: true
+    inject: [memory/context.md]
+
+  planner:
+    agent: planner
+    backend: claude
+    task: >
+      制定审计计划，生成 audit skills 与子流水线并同步执行，直至子流水线完成。
+      特别地：先读 knowledge/vendors/cisco-ios-classic.md，家族签名清单（enable 空口令
+      静默授权 / $-name 栈溢出 / /wildcard marker 无界拷贝 / /LEVEL/ 大小写重定向 /
+      %00 截断——c2950/c3550 已确认）设为最高优先 hypotheses，逐条对 c3750 15.0(1)SE
+      验证存在性；并对比 c3550 轮（runs/20260919-091036）确认这些签名在 2004→2010
+      代码基演化中的存留状态
+    needs: [unpacker]
+    inject:
+      - memory/context.md
+      - memory/findings.md
+      - agents/unpacker/summary.md
+      - knowledge/vendors/cisco-ios-classic.md
+
+  correlator:
+    agent: correlator
+    backend: claude
+    task: 汇总审计发现，拼装漏洞利用链，产出候选漏洞清单 artifacts/vulns.md
+    needs: [planner]
+    inject:
+      - memory/context.md
+      - memory/findings.md
+      - memory/surface.md
+      - agents/planner/summary.md
+
+  reporter:
+    agent: reporter
+    backend: claude
+    task: >
+      产出最终漏洞报告 artifacts/report.md（本轮为静态轮：以静态证据收尾，报告即终判）。
+      报告含家族签名命中率小结（c3750 vs c3550/c2950 的签名存留对照），供回写
+      knowledge/vendors/cisco-ios-classic.md
+    needs: [correlator]
+    gate: true
+    inject:
+      - memory/context.md
+      - memory/findings.md
+      - agents/correlator/summary.md
+      - knowledge/vendors/cisco-ios-classic.md

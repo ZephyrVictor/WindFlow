@@ -20,14 +20,18 @@
 
 - tmpfs 静态文件树挂 `/click`（按模块接口的路径面造假）
 - `click_read`/`click_write` 类 CLI 工具用 shell 脚本 stub（罐头返回值/参数回显）
+- **先反汇编再决定 stub 层级**（ap3g3 实战增量）：`click_read` 实为纯用户态文件 I/O（`open(path, O_RDWR|O_CREAT)` → write → read，无内核 ioctl）→ 真实二进制 + 静态树即可，缺失 handler 文件被 O_CREAT 自动创建为空——比脚本 stub 保真度更高，"只造数据面，不造代码"
 - 原则：**stub 依赖，绝不 stub sink**——目标是让目标 handler 跑到 sink
-- AP1850 已有 /click 假树与 wcp stub 先例
+- 依赖面可能比预期薄：ap3g3 grpc_server 裸拉即监听（/click 缺失只致周期性 IAPP 读错日志，非致命）——先试裸拉再补依赖
+- **已验证战果**（ap3g3 `runs/20260919-153343`）：模块墙后服务（grpc_server）经路线 1 起飞，VULN-1（预认证 root 命令注入三判据）+ VULN-2（27 方法零鉴权）执行级实证、VULN-3 clientid PC 控制实证——**sink 在用户态二进制自身时，模块墙只挡启动不挡漏洞本体**
+- 路线 1 验不了的面（如实留静态）：模块伪文件系统写入效果（`> /proc/aptrace/...` 落空不阻断注入但效果不可验）、click 防火墙语义（CH-1 WAN 直达段）、capwapd 类 sink 在模块内的服务
 
 ### 路线 2：匹配内核重建（按天计，解锁整个模块平面）
 
 自建**与固件内核同版本**的内核 + QEMU 支持的平台，让固件自带 .ko 原生加载：
 
-1. 取 GPL 源码（Cisco 按 GPL 发布 Aironet 内核源码；Meraki 私有符号必然在源码里）｜gate：精确分支可得
+1. 取 GPL 源码（Meraki 私有符号必然在源码里，GPL 保证）｜gate：精确分支可得
+   - **GPL 可得性调查结论（2026-09-19）**：无公开下载页（cisco.com 只有 license notices，软件中心无 GPL 区）。可行渠道 = **邮件请求 open-source@meraki.com**——MS225（linux-3.18）/ MX80（linux-3.4）/ MR52 均有 fulfilled 先例（GitHub halmartin 系列镜像、OpenWrt/ServeTheHome 论坛报告）。Aironet 品牌 ME 固件（Meraki 血统，merakiclick.ko 在场）走该渠道是否被受理未验证；备选 Cisco 官方 open source/licensing 渠道（2008 FSF v. Cisco 和解后流程存在但响应慢）。响应周期未知（先例显示天~周级）→ **请求本身是人工动作，agent 不可代发**
 2. `extract-ikconfig` 从固件 zImage 提内嵌 .config；缺 IKCONFIG 用 GPL 包 config｜gate：精确 config
 3. config 手术**只加** QEMU 平台驱动（vexpress：PL011/ttyAMA0、virtio-blk/net、GIC、SMP），vermagic 决定项全不动
 4. gcc-13 + 五坑垫片编译（见下）
@@ -63,4 +67,5 @@
 
 - AP1850 轮（gcc-13 五坑、p2v8 双向工程、vermagic 逐字节纪律确立）
 - ap3g3 `runs/20260919-091031`（三重死锁实证定性：grpc/capwapd 因 merakiclick vermagic + 私有符号不可运行；final-report §6.1）
+- ap3g3 `runs/20260919-153343`（**路线 1 全胜实战**：grpc_server 替身环境起飞 + 三条漏洞执行级实证；click_read 用户态 I/O 定性、PATH 工件第二实例法；final-report-grpc §8 环境口径）
 - 路线 2 实操记录：（待补——完成后回填）

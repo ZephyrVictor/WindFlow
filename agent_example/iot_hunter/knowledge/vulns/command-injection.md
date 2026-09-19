@@ -31,6 +31,14 @@
 - GET query 与 POST body 有本质区别（handler 可能只解析 REQUEST_URI），两个方向都试
 - 注入值落盘持久化面（config 回写后 delete/read 循环回放）单独记 [chain-dyn]——单次会话回放实证 ≠ 跨重启存活
 - 串口文件 grep 必须 `-a`（二进制混杂），`strings -a` 更稳
+- **注入值经配置落盘 + respawn 回放**（ap3g3 grpc 案例：MacTable 写 /tmp/ap/v1/managed-wifi-config//anomaly-detection，服务重启后旧 marker 在日志重现）——按残留纪律不算新证据，但作为"跨重启回放"待查线索记录
+
+### Go sink 专项（grpc_server 案例，ap3g3 runs/20260919-153343）
+
+- **`exec.Command("sh","-c",cmd).Output()` 观测适配**：Output() 成功路径丢弃 stdout、stderr→/dev/null——原样 payload 的输出在任何通道不可见，判据②必须用**自重定向变体** `x;id>/dev/console;echo $M>/dev/console;`（命令语义等价，报告注明适配）
+- **LookPath 阶段阻断 ≠ 注入不存在**：`exec.Command("sh",...)` 用相对名时先查 PATH——仿真环境链（firmadyne 精简 init → respawn 脚本）常无 PATH，guest 日志出 `exec: "sh": executable file not found in $PATH`。判别：这是环境工件（真机 systemd 提供缺省 PATH），payload 仍到达 sink 函数（服务自身日志的参数落痕可证）。修法：**第二实例法**——注入原语补拉同二进制 `env -u LD_PRELOAD PATH=/bin:... SERVER_PORT=<新端口> <binary> &`，判据在新实例完成，事后 kill 恢复
+- **sink 尾部重定向落空不阻断注入**：`sh -c 'cmd1; > /missing/path'` 中 cmd1 正常执行仅整体 exit 1——sink 拼接的 `> /proc/xxx` 因内核模块缺失落空时，其前的注入命令照常执行，marker 判据不受影响（logrus 错误形态从 "not found" 变 "exit status 1" 本身就是执行证据）
+- grpc 服务无 reflection 时用**内嵌 descriptor 抠取**：FileDescriptorSet 以 gzip 魔数 `\x1f\x8b\x08` 存在二进制内，抠出后 zlib inflate 即得 proto 全集（40 文件），客户端逆 serializer 裸字节构造
 
 ### 原语复用（工具化）
 
@@ -46,3 +54,4 @@
 
 - AP1850 v2/补验轮（档位 1-3 + console 回传技巧确立）
 - ap3g3 `runs/20260919-091031` PoC 子 run `20260919-110256`（档位 4 do_execve 全文 + 三判据完备化；final-report §2）
+- ap3g3 grpc 面 `runs/20260919-153343`（Go sink 专项：Output() 自重定向适配、PATH 工件第二实例法、尾部重定向落空不阻断、descriptor 抠取；VULN-1 三判据全中——final-report-grpc §2）

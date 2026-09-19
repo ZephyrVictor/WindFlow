@@ -1,0 +1,76 @@
+# ap3g3 grpc 补验轮 — 接在完整轮 run 20260919-091031 之后（路线 1：click 依赖替身）
+# 目标：VULN-1/VULN-2（grpc_server 无鉴权 + AirScan root RCE）从静态升级执行级
+# 用法: flow run -p /home/fjw/workspace/flow/iot_hunter -f flow-ap3g3-grpc.yaml
+name: iot-hunter-ap3g3-grpc
+control: true
+
+nodes:
+  rehoster:
+    agent: rehoster
+    backend: claude
+    task: >
+      在既有 ap3g3 仿真实例上让 grpc_server 跑起来（轻任务，勿重建环境）：实例 tap301_0 /
+      guest 192.168.101.1 在线（勿动 tap300_0 = 旧 AP1850 实例），目标二进制
+      workdir/extracted/ap3g3/ramfs_cisco/usr/sbin/grpc_server（9.9MB Go 1.9.1，串口
+      execve 追踪可见其命令）。方法按 knowledge/rehost/vermagic-engineering.md 路线 1
+      （依赖替身）：guest 内 tmpfs 假 /click 静态树 + click_read/click_write 脚本 stub；
+      guest 内操作通道优先用已实证的 VULN-4 零凭据注入原语（见注入 final-report §2.1 的
+      clientid 手法；若 sshd 可达且有可用凭据亦可，你自行判断）。硬约束：① stub 只造依赖，
+      grpc_server 自身的 sh -c sink（updateAnomalyClientConfig@0x56fc9c → exec.Command
+      @0x56ff64）必须真实执行，绝不能 stub sink；② 每一步 guest 改动（改了什么/为什么/
+      如何恢复）当场记 decisions.md；③ 开工先读注入的旧 context.md §6 环境契约与 final-report
+      §6.4 guest 残留状态（config.oeap 的 V7MARK_B 会被 delete 循环回放、htpasswd.user 被
+      写过——串口出现旧 marker 不是新证据）。若 grpc_server 因用户态依赖（配置/网络面）起不来，
+      如实记录完整失败面到 context.md（这是路线 2 匹配内核重建的关键输入），不要硬撑到失去
+      环境可控性。就绪判据：宿主 192.168.101.2 可探测 TCP 57777（h2c 明文连接成功）且
+      grpc_server 进程稳定存活（≥2 次探测间隔）。环境契约（含 stub 清单、能力边界、
+      guest 改动与恢复状态）追加到 memory/context.md 末尾。
+    gate: true
+    retry: 1
+    inject:
+      - memory/context.md
+      - memory/findings.md
+      - agents/rehoster/backends.md
+      - /home/fjw/workspace/flow/iot_hunter/runs/20260919-091031/memory/context.md
+      - /home/fjw/workspace/flow/iot_hunter/runs/20260919-091031/artifacts/final-report.md
+
+  poc-planner:
+    agent: poc-planner
+    backend: claude
+    task: >
+      制定 grpc 面补验 PoC 工单（≤4 个，全部 network 型）：① VULN-1 主枪——h2c 明文调
+      cheetah.APAirScan/AirScanConfigOperation，MacTable=["x;id;echo V1MARK;"]，按
+      knowledge/vulns/command-injection.md 三判据（payload 原样进命令串 / uid=0+marker
+      真实执行 / 纯 benign 对照零出现）；② VULN-2 认证缺失枚举——11 个服务逐一 method 调用，
+      判据 = 无鉴权挑战即达 handler（认证边界对照必须做，见 knowledge/vulns/auth-bypass.md）；
+      ③ VULN-3 clientid 通道截断差补偿——按注入 final-report §3.2/§4 的待办（截断差 9 字节，
+      补偿长度再发图样枪，判据按 knowledge/vulns/stack-overflow.md 双图样）；④ VULN-12/17
+      minor 顺手单（test_dump DoS / testfastcgi 回显，无环境缺失纯工单上限未开）。
+      工单防误判硬要求：每个工单必须写明 guest 残留状态警告（§6.4：V7MARK_B 回放不算新
+      证据）。生成子流水线并同步执行到完成。
+    needs: [rehoster]
+    inject:
+      - memory/context.md
+      - memory/findings.md
+      - memory/decisions.md
+      - agents/rehoster/summary.md
+      - /home/fjw/workspace/flow/iot_hunter/runs/20260919-091031/artifacts/final-report.md
+      - /home/fjw/workspace/flow/iot_hunter/runs/20260919-091031/memory/findings.md
+
+  finalizer:
+    agent: finalizer
+    backend: claude
+    task: >
+      增补终判：综合本轮 grpc 面动态结果与原 run 20260919-091031 终判报告，产出增补报告
+      artifacts/final-report-grpc.md——VULN-1/2 终态（执行级三判据或如实记录环境阻断
+      根因）、VULN-3 clientid 存疑项结论、VULN-12/17 结论；逐条明确哪些主张升级/维持/降级
+      及判据。不改写原报告结论，只增补；置信度纪律与原报告一致（执行级实证不因 stub 环境
+      升级表述，环境口径必须写明：/click 为替身，grpc_server 自身 sink 真实）。
+    needs: [poc-planner]
+    gate: true
+    inject:
+      - memory/context.md
+      - memory/findings.md
+      - memory/decisions.md
+      - agents/poc-planner/summary.md
+      - /home/fjw/workspace/flow/iot_hunter/runs/20260919-091031/artifacts/final-report.md
