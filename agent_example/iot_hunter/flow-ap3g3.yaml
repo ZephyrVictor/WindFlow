@@ -1,0 +1,75 @@
+name: iot-hunter-ap3g3
+control: true
+
+nodes:
+  unpacker:
+    agent: unpacker
+    backend: claude
+    task: 本轮唯一目标固件 workdir/firmwares/ap3g3-k9w8-tar.153-3.JK.tar（Cisco Aironet 3700 平台 Mobility Express 15.3(3)JK，uImage Linux/ARM）。解包到 workdir/extracted/ap3g3/，识别设备与版本，产出攻击面盘点；workdir/firmwares/ 下其他固件属于别的轮次，不要动
+    gate: true
+    inject: [memory/context.md]
+
+  planner:
+    agent: planner
+    backend: claude
+    task: 制定审计计划，生成 audit skills 与子流水线并同步执行，直至子流水线完成
+    needs: [unpacker]
+    inject:
+      - memory/context.md
+      - memory/findings.md
+      - agents/unpacker/summary.md
+
+  correlator:
+    agent: correlator
+    backend: claude
+    task: 汇总审计发现，拼装漏洞利用链，产出候选漏洞清单 artifacts/vulns.md
+    needs: [planner]
+    inject:
+      - memory/context.md
+      - memory/findings.md
+      - memory/surface.md
+      - agents/planner/summary.md
+
+  reporter:
+    agent: reporter
+    backend: claude
+    task: 产出最终漏洞报告 artifacts/report.md
+    needs: [correlator]
+    gate: true
+    inject:
+      - memory/context.md
+      - memory/findings.md
+      - agents/correlator/summary.md
+
+  rehoster:
+    agent: rehoster
+    backend: claude
+    task: 按 backends.md tag 路由选择仿真后端并搭建环境，环境契约写入 memory/context.md（并行提示：审计链在同时进行，你不需要等审计结论，只按 inventory.md 的 rehost 路由 + backends.md 工作）
+    needs: [unpacker]
+    retry: 1
+    inject:
+      - memory/context.md
+      - memory/findings.md
+      - agents/rehoster/backends.md
+
+  poc-planner:
+    agent: poc-planner
+    backend: claude
+    task: 制定 PoC 工单，生成子流水线并同步执行到完成
+    needs: [rehoster, reporter]
+    inject:
+      - memory/context.md
+      - memory/findings.md
+      - memory/decisions.md
+      - agents/rehoster/summary.md
+
+  finalizer:
+    agent: finalizer
+    backend: claude
+    task: 综合静态与动态结果产出最终结论 artifacts/final-report.md
+    needs: [poc-planner]
+    inject:
+      - memory/context.md
+      - memory/findings.md
+      - memory/decisions.md
+      - agents/poc-planner/summary.md

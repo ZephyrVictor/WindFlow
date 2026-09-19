@@ -1,6 +1,8 @@
 # rehoster 跨 run 经验（longterm 种子 — 人工从各 run memory.md 晋升维护）
 
-> 来源：AP1850（AIR-AP1852I-K9 8.10.130.0）三轮 rehost 实战（runs/20260915-095054 等）
+> 来源：AP1850（AIR-AP1852I-K9 8.10.130.0）三轮 rehost 实战（runs/20260915-095054 等）+ ap3g3 ME 15.3(3)JK（runs/20260919-091031）
+>
+> **跨厂商/工艺经验已分维沉淀到 `knowledge/`**（INDEX.md 命中表）：厂商家族配方与注入面族 → `knowledge/vendors/`；vermagic/内核模块墙全工程 → `knowledge/rehost/vermagic-engineering.md`。本文件保留 rehoster 角色程序性经验。
 
 ## FirmAE / qemu 宿主环境坑（L1 级，每轮必查）
 
@@ -35,3 +37,9 @@
 
 - 修复每一步（改了什么/为什么/结果）当场追加 decisions.md，不要攒到最后
 - 契约（context.md 环境节）写终态 + 已知限制（哪些是 stub、哪些路径异常），下游裁剪工单全靠它
+
+## ap3g3 L3 手工镜像实录（bootsh 切根型 ME 固件）
+
+- FirmAE extractor 对双层 initramfs 选错层（busybox bootstrap 而非 ramfs_cisco）→ 直接走 L3 手工配方：build 脚本（解 ramfs_cisco → ext2 整盘）+ launch 脚本（QEMU 直启 + 就绪探测），复现件在 run decisions.md [rehoster] 与会话级 /tmp
+- 三坑修复：缺 `/run` 创建即可；lighttpd daemonize 与看门狗互杀改 monitor-loop；宿主 zsh word-splitting 导致认证探测误判（探测脚本显式引号/数组）
+- 同家族固件（ME/Meraki 架构）直接复用配方，见 `knowledge/vendors/cisco-meraki-me.md`

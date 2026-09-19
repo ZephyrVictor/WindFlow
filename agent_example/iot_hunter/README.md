@@ -57,8 +57,12 @@ unpacker(gate) ─┬─→ planner ─→ correlator ─→ reporter(gate) ─�
 ├── flow.yaml              主流水线（并行 DAG）
 ├── flow-rehost.yaml       续跑模式（接已完成审计的 run）
 ├── flow-retest.yaml       复测模式（环境修复后全量复测 + 补审）
+├── flow-ap3g3.yaml        完整轮模板（静态+rehost+PoC 七节点，2026-09-19 实战）
+├── flow-c3550.yaml        静态终轮模板（无模拟器目标，报告即终判）
 ├── agents/                10 个 agent 的角色定义；rehoster/backends.md（仿真后端路由表）
-│                          与 {rehoster,verifier,poc-planner}/longterm.md（跨 run 经验）
+│                          与 {rehoster,verifier,poc-planner}/longterm.md（角色程序性经验）
+├── knowledge/             跨 run 知识库（INDEX 命中表 + vendors 厂商家族 /
+│                          vulns 漏洞类型方法论 / rehost 工艺；五要素字段含"死路"）
 ├── scripts/watchdog.sh    巡检与故障自愈
 └── workdir/artifacts/     真实产出示例（v2 轮三份报告）
 ```
