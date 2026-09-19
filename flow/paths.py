@@ -156,9 +156,29 @@ def new_run_id() -> str:
     return base
 
 
+def _is_root_run(run_dir: Path) -> bool:
+    """A run without parent_run_id; runs predating the field count as roots."""
+    import json as _json
+
+    state_file = run_dir / C.STATE_FILE
+    if not state_file.is_file():
+        return True
+    try:
+        raw = _json.loads(state_file.read_text())
+    except (ValueError, OSError):
+        return True
+    return raw.get("parent_run_id") is None
+
+
 def latest_run_id(project: ProjectPaths) -> str | None:
+    """Newest ROOT run id. Sub-pipeline run dirs sort after their parent
+    (spawned later) and used to steal the "latest" slot; only root runs
+    qualify now, falling back to the overall newest when none qualifies."""
     runs = project.runs_dir
     if not runs.is_dir():
         return None
     ids = sorted(p.name for p in runs.iterdir() if p.is_dir())
+    for run_id in reversed(ids):
+        if _is_root_run(runs / run_id):
+            return run_id
     return ids[-1] if ids else None

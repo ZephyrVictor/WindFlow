@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import json
 import os
+import re
 from pathlib import Path
 
 from flow import constants as C
@@ -36,6 +37,50 @@ FORWARDED_ENV_VARS = [
 
 class DriverError(Exception):
     pass
+
+
+def classify_pane(pane_text: str) -> C.DialogState:
+    """Classify a pane capture for safe prompt delivery.
+
+    Pure function over the captured text. Order matters:
+    1. empty capture -> UNKNOWN
+    2. paste chip at/after the last input-prompt line -> NOT_SUBMITTED
+       (Enter was lost; a *submitted* paste lives above the input box)
+    3. explicit option-dialog markers -> DIALOG
+    4. rendered input line (❯/›) -> READY
+    5. >=2 consecutive numbered-option lines in the bottom region -> DIALOG
+    6. anything else -> UNKNOWN (caller holds the message, never drops it)
+    """
+    content = [l for l in pane_text.splitlines() if l.strip()]
+    if not content:
+        return C.DialogState.UNKNOWN
+    last_prompt = -1
+    for i, l in enumerate(content):
+        if "❯" in l or "›" in l:
+            last_prompt = i
+    # chip inside the input box: at/after the prompt line, or in the very
+    # bottom lines when no prompt line is rendered at all
+    lo = max(last_prompt, len(content) - 3)
+    for l in content[lo:]:
+        if re.search(C.PASTED_TEXT_PATTERN, l):
+            return C.DialogState.NOT_SUBMITTED
+    bottom = content[-C.PANE_BOTTOM_LINES:]
+    bottom_text = "\n".join(bottom)
+    for marker in C.DIALOG_MARKER_STRINGS:
+        if marker in bottom_text:
+            return C.DialogState.DIALOG
+    for l in content[-6:]:
+        if "❯" in l or "›" in l:
+            return C.DialogState.READY
+    consecutive = 0
+    for l in bottom:
+        if re.match(C.DIALOG_OPTION_PATTERN, l):
+            consecutive += 1
+            if consecutive >= 2:
+                return C.DialogState.DIALOG
+        else:
+            consecutive = 0
+    return C.DialogState.UNKNOWN
 
 
 class BackendDriver:
@@ -128,6 +173,8 @@ class BackendDriver:
             if v:
                 env[k] = v
         env.update(self.node_env.get(cfg.name, {}))
+        # after node_env so a yaml `env:` entry cannot clobber the run id
+        env[C.FLOW_RUN_ID_ENV] = self.run.run_id
         return "".join(f"{k}='{v}' " for k, v in env.items())
 
     # -- prompt delivery ---------------------------------------------------
@@ -145,6 +192,27 @@ class BackendDriver:
             _time.sleep(1.0)
             waited += 1.0
         tmux.send_text(self.run, node, text)
+        self._confirm_submitted(node)
+
+    def _confirm_submitted(self, node: str, attempts: int = 3) -> None:
+        """Verify the text actually left the input box (Enter took effect).
+
+        Long pastes can end up as a "[Pasted text #N]" chip still sitting in
+        the input line with the Enter swallowed — observed as a 3h hang in a
+        production run. Re-send Enter and re-check; give up as DriverError so
+        the caller can fail the node instead of idling forever.
+        """
+        import time as _time
+
+        for _ in range(attempts):
+            _time.sleep(1.0)
+            state = classify_pane(tmux.capture_pane(self.run, node, lines=40))
+            if state is not C.DialogState.NOT_SUBMITTED:
+                return
+            tmux.send_keys(self.run, node, "Enter")
+        raise DriverError(
+            f"prompt for {node} not submitted after {attempts} Enter retries"
+        )
 
     def _wait_tui_ready(self, node: str, timeout: float = 90.0) -> None:
         """Wait until the CLI input box is interactive.

@@ -48,15 +48,19 @@ flow run -p /path/to/project
 | `flow init` | 脚手架新项目 |
 | `flow validate` | 校验 pipeline yaml |
 | `flow run [-f YAML]` | 起 run（`-f` 指定非默认 yaml；子流水线模式） |
-| `flow status [RUN_ID]` | 查看 run / 节点状态 |
+| `flow status [RUN_ID]` | 查看 run / 节点状态（多 run 并存时列出全部非终态候选） |
+| `flow tree [-r RUN_ID]` | run 树视图：父子关系、tmux 会话探测、僵尸标记（ADR-0009） |
 | `flow attach` | attach 到 run 的 tmux 会话 |
-| `flow log` | 查看节点 tty.log |
+| `flow log [-f]` | 查看节点 tty.log（`-f` 持续跟随） |
 | `flow approve` | 批准 waiting-human 的 gate 节点 |
-| `flow inject` | 给运行中节点投递消息 |
+| `flow inject` | 给运行中节点投递消息（queued/delivered 回执见 run 内 inject-log.jsonl） |
 | `flow retry` / `flow skip` | 重置节点 / 放弃节点（下游 satisfied 放行，ADR-0008） |
+| `flow edit <node> [--agent]` | 编辑节点 agent.md（run 内副本优先；`--agent` 编辑项目定义），改后 retry |
 | `flow stop` / `flow resume` | 停止（杀 tmux、run 暂停）/ 恢复 |
 | `flow agent` | 管理 agent 定义（new / list / show） |
 | `flow clean` | 清理终态 run 的 tmux 会话（可选删旧 run） |
+
+run 作用域子命令（status/approve/skip/retry/inject/log/edit/tree/attach/resume/stop）统一接受 `-r/--run RUN_ID` 与位置参数两种指定方式（二者冲突报错）。注意 argparse 限制：前导位置参数存在时，位置 run_id 须在选项之前（`flow approve n1 run-1 -p /x` 可以，`flow approve n1 -p /x run-1` 报错）——`-r` 任何位置都合法。`flow skip` 无 run_id 位置参数（reason 贪婪吞尾），指定 run 一律 `-r`。
 
 ## flow.yaml 示例
 
@@ -105,14 +109,15 @@ develop/
 
 ## 实战验证
 
-引擎已通过 [agent_example/iot_hunter](agent_example/iot_hunter)（固件漏洞审计流水线）三轮真机验收：最新一轮 13 节点（含两批并行子流水线）4h42m 全链完成，产出 6 条执行级实证漏洞；并行 DAG、gate 审批、inject 干预、watchdog 故障自愈、longterm 经验复用均在生产 run 中生效。详见该示例的 README。
+引擎已通过 [agent_example/iot_hunter](agent_example/iot_hunter)（固件漏洞审计流水线）三轮真机验收：最新补验轮 13 节点（含并行子流水线）全链完成，累计产出 12 条执行级实证漏洞（含 sshd 认证绕过、dlopen root RCE 链闭环）+ 5 条静态重大发现；并行 DAG、gate 审批、inject 干预、watchdog 故障自愈（`--loop` 自守护）、longterm 经验复用均在生产 run 中生效。详见该示例的 README。
 
 ## 已知限制
 
-- 节点 summarize 阶段的 inject 会被缓冲；若 agent 在该阶段提问（AskUserQuestion）会死锁，需 tmux send-keys 干预
-- `latest_run_id` 按目录名字典序解析"最新"，子流水线 run 名靠后会抢占——操作不带 run_id 时可能定位错 run
-- `flow approve` 的 `-p` 与位置参数顺序敏感（run_id 须在 `-p` 之前）
-- watchdog 为单次脚本，需外部循环调度（示例项目用 `nohup while` 循环）
+- 对话框/粘贴片检测（classify_pane）是对 claude/codex TUI 渲染的启发式，CLI 版本升级可能失效——采取保守策略：识别不了就挂起消息并告警，绝不向对话框盲发，消息永不丢弃
+- 历史子 run 的 state.json 无 `parent_run_id` 字段，`flow tree` 中显示为根 run（纯展示瑕疵，新 run 均已记录）
+- inject-log.jsonl 回执是审计记录（queued/delivered 事件流），不是送达保证；投递失败靠队列重入队兜底
+- CLI 进程与 orchestrator 并发读写 inject-queue.json 存在竞态（极端情况双发），flock 留待后续（ADR-0009 记录）
+- `flow skip` 无 run_id 位置参数；argparse 限制前导位置参数后不能跟选项式位置参数（用 `-r` 规避，见命令一览）
 
 ## 开发
 

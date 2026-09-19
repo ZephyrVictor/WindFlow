@@ -75,16 +75,20 @@ Validation rules (all reported with node+field): agent must exist; backend in {c
 
 ## 4. Running & intervening
 
+All run-scoped commands accept `-r/--run RUN_ID` (and most accept a positional run_id before options). When more than one run is non-terminal, always pass `-r` — bare commands pick the latest **root** run and may target the wrong one.
+
 | Command | Use |
 |---|---|
 | `flow run [-f FILE] [-p DIR]` | start run (`-f` for sub-pipeline yaml); blocks until done/paused |
-| `flow status [run_id] [-p DIR]` | node status table (run_id defaults to latest) |
+| `flow status [run_id] [-p DIR]` | node status table (run_id defaults to latest root run; with several live runs it lists candidates) |
+| `flow tree [-p DIR] [-r RUN_ID]` | run tree: parent/child runs, node states, tmux session probe, `MISSING(zombie)` marks for runs whose session died mid-flight |
 | `flow attach [node] [run_id]` | attach to tmux session; with node name, holds that node's attach lock (orchestrator defers prompt delivery while locked) |
-| `flow log <node> [run_id]` | open the node's tty.log in less |
+| `flow log <node> [-f] [run_id]` | open the node's tty.log in less; `-f` follows live |
 | `flow approve <node>` | release a waiting-human gate |
 | `flow retry <node>` | reset node to pending (destroys its window → fresh session); then `flow resume` |
-| `flow skip <node> [reason]` | give up a failed/waiting-human node; downstream treats it as satisfied and proceeds; then `flow resume` |
-| `flow inject <node> <message>` | queue a message delivered to a running node |
+| `flow skip <node> [reason]` | give up a failed/waiting-human node; downstream treats it as satisfied and proceeds; then `flow resume` (no run_id positional — use `-r`) |
+| `flow inject <node> <message>` | queue a message delivered to a running node (receipts land in the run's inject-log.jsonl) |
+| `flow edit <node> [--agent]` | edit a node's agent.md (the run's snapshot by default; `--agent` edits the project definition); after editing, `flow retry <node>` + `flow resume` |
 | `flow resume` / `flow stop` | continue a paused run / kill session + pause |
 | `flow validate [file]` | validate yaml |
 | `flow agent list/show/new` | manage agent definitions |
@@ -93,9 +97,11 @@ Validation rules (all reported with node+field): agent must exist; backend in {c
 **Intervention decision guide:**
 - Node produced wrong/partial work but is still running → `flow inject` with corrective instructions
 - Node finished wrong / context polluted (e.g. bad input poisoned the conversation) → `flow retry` (fresh session, not inject)
+- The node's **prompt itself** was written wrong (agent.md/task mismatch) → `flow edit <node>`, then `flow retry <node>` + `flow resume` (retry alone would reload the same broken snapshot)
 - Node failed / blocked and retrying won't help (e.g. environment won't come up) but downstream should still run → `flow skip <node> <reason>` (downstream proceeds without its summary; downstream agents must tolerate a missing summary — the task prompt says "skip files that don't exist")
 - Human sign-off needed on quality → design the node with `gate: true` from the start
 - Interactive debugging → `flow attach <node>` (you talk to that CLI directly; orchestrator pauses deliveries to it)
+- Run looks stuck / tmux session vanished → `flow tree`: `MISSING(zombie)` marks runs whose state says running but session is gone (resume-or-forget candidates)
 
 ## 5. Orchestration patterns
 
@@ -111,7 +117,7 @@ Validation rules (all reported with node+field): agent must exist; backend in {c
 3. Runs it synchronously: `flow run -p <project> -f runs/<parent>/plan/flow.yaml` (blocks; the parent node's done.flag fires only after)
 4. Workers append findings to the **parent run's** findings.md (absolute path in inject)
 5. Cap sub-pipeline nodes (~4); prioritize and record cuts in decisions.md
-The sub run gets its own tmux session and its own run dir; `flow status/approve/retry` on it resolve from its own pipeline snapshot. Clean up its session afterwards with `flow clean`.
+The sub run gets its own tmux session and its own run dir, and records `parent_run_id` in its state.json (the engine injects `FLOW_RUN_ID` into every node's env; `flow run` inside a node picks it up as the parent). `flow tree` shows the parent/child relation; `flow status/approve/retry` on a sub run resolve from its own pipeline snapshot — pass `-r <sub-run-id>`. Clean up its session afterwards with `flow clean`.
 
 ## 6. Operating rules
 

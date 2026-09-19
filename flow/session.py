@@ -83,6 +83,9 @@ def _list_window_names(session: str) -> list[str]:
     return proc.stdout.splitlines()
 
 
+list_window_names = _list_window_names
+
+
 def _resolve_window_name(run: RunPaths, node: str) -> str | None:
     """Windows are named `<idx>-<node>`; resolve bare node name to full name."""
     for w in _list_window_names(run.tmux_session_name):

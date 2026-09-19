@@ -115,6 +115,9 @@ def summary_prompt(summary_path: str, task_summary: str) -> str:
 - 交给下游 agent 的注意事项
 
 写完后不要做其他事，运行 `touch` 你的完成标记后结束。
+
+## 约束
+- 本阶段无人应答：如需澄清或缺少信息，不要提问，直接做合理假设并在总结中注明假设。
 """
 
 

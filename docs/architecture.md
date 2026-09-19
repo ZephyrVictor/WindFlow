@@ -63,11 +63,11 @@ Project = 任意含 flow.yaml 的目录（无系统根目录）；agent 定义�
     └── .tmux.conf
 ```
 
-代码模块（`flow/` 包）：constants（全部枚举/字面量）、paths（目录约定；find_project_root 跳过 runs/ 内的 flow.yaml）、config（yaml+DAG 校验）、state（状态机）、session（tmux 封装+attach 锁）、driver（claude/codex 启动/投递/完成检测）、memory（初始化+prompt 组装）、prompts（全部模板，禁止散落硬编码）、orchestrator（调度循环）、control（总控节点）、cli（命令组：run(-f)/status/attach/log/resume/stop/approve/retry/skip/inject/validate/agent/init/clean；status/approve/retry/skip 优先按 run 内 pipeline.yaml 解析）。
+代码模块（`flow/` 包）：constants（全部枚举/字面量）、paths（目录约定；find_project_root 跳过 runs/ 内的 flow.yaml）、config（yaml+DAG 校验）、state（状态机）、session（tmux 封装+attach 锁）、driver（claude/codex 启动/投递/完成检测；classify_pane pane 分诊 + 提交确认）、memory（初始化+prompt 组装）、prompts（全部模板，禁止散落硬编码）、orchestrator（调度循环；inject 投递门控与回执）、runs（跨 run 查询：扫描/父子关系/树视图）、control（总控节点）、cli（命令组：run(-f)/status/attach/log(-f)/resume/stop/approve/retry/skip/inject/tree/edit/validate/agent/init/clean；run 作用域命令统一接受 `-r/--run`，status/approve/retry/skip 优先按 run 内 pipeline.yaml 解析）。
 
 节点状态机含 `skipped` 终态（ADR-0008）：上游 failed/waiting-human 时人工 `flow skip` 放弃该节点，下游视同 done 放行（inject 的 summary.md 缺失时按约定跳过）；暂停时 status 输出 control session 的 tmux attach 指令。
 
-动态 fan-out（子流水线模式，ADR-0006）：运行时节点数由 agent 生成的静态子 flow.yaml 表达——`flow run -f <父run>/plan/flow.yaml`，子 run 与父 run 各自独立 tmux session，子节点 inject 绝对路径共享父 run memory。
+动态 fan-out（子流水线模式，ADR-0006）：运行时节点数由 agent 生成的静态子 flow.yaml 表达——`flow run -f <父run>/plan/flow.yaml`，子 run 与父 run 各自独立 tmux session，子节点 inject 绝对路径共享父 run memory。子 run 的 state.json 记录 `parent_run_id`（driver 注入 `FLOW_RUN_ID` env、cmd_run 读取，ADR-0009）；`latest_run_id` 只在根 run 里挑最新，`flow tree` 按 parent 关系渲染树并标记僵尸 run（state 非终态但 tmux 会话已消失）。
 
 ## 6. 运行与开发方式
 

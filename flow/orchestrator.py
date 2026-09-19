@@ -11,7 +11,7 @@ from flow import memory as flow_memory
 from flow import session as tmux
 from flow.config import PipelineConfig
 from flow.constants import NodeStatus
-from flow.driver import BackendDriver
+from flow.driver import BackendDriver, DriverError, classify_pane
 from flow.paths import ProjectPaths, RunPaths
 from flow.state import RunState
 
@@ -52,6 +52,44 @@ class InjectQueue:
         return msgs
 
 
+class InjectLog:
+    """Append-only jsonl receipt log: one `queued` line per inject, one
+    `delivered` line per successful send. Audit aid only — the queue file
+    stays the source of truth for pending messages."""
+
+    def __init__(self, path: Path):
+        self.path = path
+
+    def append(self, event: str, node: str, message: str) -> None:
+        import json as _json
+        import time as _time
+
+        rec = {
+            "ts": round(_time.time(), 3),
+            "event": event,
+            "node": node,
+            "message": message,
+        }
+        with self.path.open("a", encoding="utf-8") as f:
+            f.write(_json.dumps(rec, ensure_ascii=False) + "\n")
+
+    def replay(self) -> list[dict]:
+        import json as _json
+
+        if not self.path.is_file():
+            return []
+        out: list[dict] = []
+        for line in self.path.read_text(encoding="utf-8").splitlines():
+            line = line.strip()
+            if not line:
+                continue
+            try:
+                out.append(_json.loads(line))
+            except ValueError:
+                continue  # torn tail line from a crashed writer
+        return out
+
+
 class Orchestrator:
     def __init__(
         self,
@@ -71,9 +109,12 @@ class Orchestrator:
         self.inject_queue = InjectQueue.load(
             run.root / C.INJECT_QUEUE_FILE
         )
+        self.inject_log = InjectLog(run.root / C.INJECT_LOG_FILE)
         self._window_index = self._assign_window_indexes()
         # nodes that finished their main task and are now writing summary
         self._summarizing: set[str] = set()
+        # per-node monotonic timestamp of the last "inject held" warning
+        self._inject_warned_at: dict[str, float] = {}
         self._stop_requested = False
 
     def _assign_window_indexes(self) -> dict[str, int]:
@@ -196,13 +237,53 @@ class Orchestrator:
                 self._launch(name, cfg)
 
         # 4. deliver inject queue
-        for name in list(self.inject_queue.items):
-            st = self.state.node(name)
-            if st.status is NodeStatus.RUNNING and name not in self._summarizing:
-                for msg in self.inject_queue.take(name):
-                    self.driver.send_prompt(name, msg)
+        self._deliver_injects()
 
         self.state.save(self.run.state_file)
+
+    def _deliver_injects(self) -> None:
+        for name in list(self.inject_queue.items):
+            st = self.state.node(name)
+            if st.status is not NodeStatus.RUNNING:
+                continue
+            if name in self._summarizing:
+                # never type into an option dialog; hold until the pane
+                # shows a rendered input line again
+                state = self._classify_node(name)
+                if state is not C.DialogState.READY:
+                    self._warn_inject_blocked(name, state)
+                    continue
+            msgs = self.inject_queue.take(name)
+            for msg in msgs:
+                try:
+                    self.driver.send_prompt(name, msg)
+                except (DriverError, tmux.TmuxError) as e:
+                    # delivery failed — put it back; retried next tick
+                    self.inject_queue.add(name, msg)
+                    print(
+                        f"inject delivery to {name} failed ({e}); "
+                        f"message re-queued"
+                    )
+                else:
+                    self.inject_log.append("delivered", name, msg)
+
+    def _classify_node(self, name: str) -> C.DialogState:
+        try:
+            pane = tmux.capture_pane(self.run, name, lines=40)
+        except tmux.TmuxError:
+            return C.DialogState.UNKNOWN
+        return classify_pane(pane)
+
+    def _warn_inject_blocked(self, name: str, state: C.DialogState) -> None:
+        now = time.monotonic()
+        if now - self._inject_warned_at.get(name, 0.0) < C.INJECT_WARN_INTERVAL_SECONDS:
+            return
+        self._inject_warned_at[name] = now
+        print(
+            f"inject to {name} held (pane state: {state.value}); "
+            f"message stays queued — inspect via `flow attach` or "
+            f"`flow log {name}`"
+        )
 
     # -- node transitions ----------------------------------------------------
 
@@ -220,7 +301,15 @@ class Orchestrator:
                     cmd,
                     self.project.workdir,
                 )
-        self.driver.send_prompt(name, prompt)
+        try:
+            self.driver.send_prompt(name, prompt)
+        except (DriverError, tmux.TmuxError) as e:
+            # delivery broken (dead window, TUI never ready): fail loudly
+            # instead of looping relaunches with attempts==0
+            self.state.set_status(name, NodeStatus.FAILED)
+            self.state.node(name).error = f"launch failed: {e}"
+            self.state.paused = True
+            return
         self.state.set_status(name, NodeStatus.RUNNING)
 
     def _reset_window(self, name: str) -> None:
@@ -309,6 +398,7 @@ class Orchestrator:
         if st.status is not NodeStatus.RUNNING:
             raise OrchestratorError(f"node {node} is not running ({st.status.value})")
         self.inject_queue.add(node, message)
+        self.inject_log.append("queued", node, message)
         self.state.save(self.run.state_file)
 
     # -- queries -----------------------------------------------------------
@@ -324,6 +414,9 @@ class Orchestrator:
             cfg = self.cfg.nodes[name]
             needs = ",".join(cfg.needs) or "-"
             extra = f" error={st.error}" if st.error else ""
+            queued = len(self.inject_queue.items.get(name, []))
+            if queued:
+                extra += f" queued={queued}"
             gate = " [gate]" if cfg.gate else ""
             lines.append(
                 f"  {name:<20} {st.status.value:<14} needs={needs}{gate}{extra}"

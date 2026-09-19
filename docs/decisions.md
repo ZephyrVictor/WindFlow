@@ -121,3 +121,27 @@
 - run 暂停时 `flow status` 打印 control session 的 tmux attach 指令——决策权在人（可直接与 control agent 对话），引擎只提供原语。
 
 **否决的替代**：yaml 级 `optional: true` 字段——把"失败怎么办"提前到声明期决定，违背"失败暂停等人"的既定哲学。
+
+## ADR-0009：观测面与修正面强化（2026-09-18）
+
+**背景**：三轮实战（v2 轮 20260917-041115 + 补验轮 20260918-005656）暴露 8 个缺口（4 缺陷 + 4 特性），均有真实代价：summarize 阶段 inject 静默丢弃（planner AskUserQuestion 死锁，只能人工 tmux 干预）；`latest_run_id` 按目录名字典序被子 run 抢占（多 run 时代 approve/inject 定位错 run）；argparse 位置参数敏感（`skip` 的 reason 贪婪吞掉 run_id、静默错位）；watchdog 依赖外部 nohup 循环；无 run 树视图、inject 无回执、prompt 写错无引导、log 无 follow。补验轮另实证两起 TUI 投递事故：paste chip 停在输入框未提交（audit-0 空转 3h）、Enter 丢失。
+
+**决策**（8 项，一次落地）：
+1. **CLI 参数面统一**：全部 run 作用域子命令加 `-r/--run`；位置参数 run_id 与 `-r` 冲突报错；**删除 `skip` 的 run_id 位置参数**（`reason nargs="*"` 贪婪吞掉它，本就不存在可用调用方式；skip 指定 run 一律 `-r`）。argparse 实证限制：前导位置参数存在时，选项后不能再跟位置参数（`approve n1 -p /x run-1` 报错）——`-r` 是万能形式，测试钉死该行为。
+2. **parent_run_id 追踪**：driver `_env_prefix` 注入 `FLOW_RUN_ID`（节点自己所在 run），`cmd_run` 读 env 作为 parent；`latest_run_id` 只在根 run 里挑最新；新增 `flow/runs.py`（RunSummary/scan_runs/children_map/render_run_tree）。
+3. **`flow tree`**：父子树视图，含 tmux 会话探测与 **MISSING(zombie)** 标记（state 非终态但会话没了）——清理残留 run 的依据；多 run 并存时 `flow status` 列出全部非终态候选并提示带 `-r`。
+4. **summarize 投递门控 + TUI 投递安全**：`classify_pane` 纯函数分诊 pane（READY/DIALOG/NOT_SUBMITTED/UNKNOWN）；summarizing 节点仅 READY 才投递，DIALOG/UNKNOWN 挂回队列 + 限频告警；**UNKNOWN 宁挂起不投递，绝不向对话框 send_text，消息永不丢弃**。`send_prompt` 发送后回读 pane 确认提交（NOT_SUBMITTED 则补发 Enter，3 次失败计 DriverError）——封堵 paste chip 未提交类事故。summary_prompt 加硬化条："不要提问，直接做合理假设并继续"。
+5. **InjectLog 投递回执**：jsonl append-only（queued/delivered 事件），内容 + FIFO 匹配，不加消息 id，inject-queue.json 格式不变；`_deliver_injects` 逐消息 try/except，失败重入队（顺手修掉 send 抛异常即丢消息的 bug）；`flow status` 显示 queued=N。
+6. **watchdog 自守护**：脚本内建 `--loop`（pidfile + kill -0 陈旧检测 + trap 清理）与 `--stop`；默认单次执行向后兼容。inject 调用统一 `-r` 写法。
+7. **`flow edit`**：编辑节点 agent.md（run 内副本优先，`--agent` 编辑项目 agents/），`$EDITOR || $VISUAL || less`；编辑后提示 retry/resume 下一步。
+8. **`flow log -f`**：`os.execvp(tail -f)`。
+
+**否决的替代**：
+- in-band 消息 id（queued/delivered 配对靠 id）——inject-queue.json 格式锁死，内容 + FIFO 匹配够用；
+- `skip --reason` 选项——与位置参数 reason 并存徒增歧义，直接删 run_id 位置参数更干净；
+- 引擎级 watchdog——巡检语义属项目（阈值/收件人/处置流程各不同），脚本自守护已消除调度脆弱点；
+- 主阶段（非 summarize）对话框门控——主阶段节点本就持续接收 inject，误判挂起代价高于收益，推迟观察。
+
+**记录不修（后续项）**：CLI 进程与 orchestrator 并发读写 inject-queue.json 的竞态（可能双发）；需要 flock 或单写者架构，留待下一轮。
+
+**影响**：flow/constants.py（DialogState 等）、flow/driver.py（classify_pane/提交确认）、flow/orchestrator.py（InjectLog/_deliver_injects/_launch 失败处置）、flow/runs.py（新）、flow/cli.py（-r 全量/tree/edit/log -f/多 run 提示）、flow/paths.py、flow/state.py、flow/prompts.py；tests/ 新增 test_cli_args.py / test_runs_tree.py / test_inject_delivery.py；iot_hunter watchdog.sh 重构。历史子 run 无 parent_run_id 字段，tree 中显示为根（纯展示瑕疵）。

@@ -24,6 +24,8 @@ class RunState:
     run_id: str
     paused: bool = False
     nodes: dict[str, NodeState] = field(default_factory=dict)
+    # set when this run is a sub-pipeline spawned inside another run's agent
+    parent_run_id: str | None = None
 
     def node(self, name: str) -> NodeState:
         if name not in self.nodes:
@@ -63,7 +65,12 @@ class RunState:
     @classmethod
     def load(cls, path: Path) -> "RunState":
         raw = json.loads(path.read_text())
-        st = cls(pipeline=raw["pipeline"], run_id=raw["run_id"], paused=raw.get("paused", False))
+        st = cls(
+            pipeline=raw["pipeline"],
+            run_id=raw["run_id"],
+            paused=raw.get("paused", False),
+            parent_run_id=raw.get("parent_run_id"),
+        )
         for name, ns in raw.get("nodes", {}).items():
             st.nodes[name] = NodeState(
                 status=C.NodeStatus(ns["status"]),

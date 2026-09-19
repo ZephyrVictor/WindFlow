@@ -31,11 +31,24 @@ def _project(args) -> ProjectPaths:
 
 
 def _run(args) -> RunPaths:
+    """Resolve the target run: positional id wins, then -r, then latest root.
+
+    Positional and -r may be combined as long as they agree (the CLI has
+    both for historical reasons; scripts should prefer -r).
+    """
+    positional = getattr(args, "run_id", None)
+    opt = getattr(args, "run", None)
+    if positional and opt and positional != opt:
+        sys.exit(f"conflicting run ids: {positional!r} vs {opt!r}")
     project = _project(args)
-    run_id = getattr(args, "run_id", None) or latest_run_id(project)
+    run_id = positional or opt or latest_run_id(project)
     if run_id is None:
         sys.exit(f"no runs found under {project.runs_dir}")
     return RunPaths(project, run_id)
+
+
+def _run_explicit(args) -> bool:
+    return bool(getattr(args, "run_id", None) or getattr(args, "run", None))
 
 
 def _pipeline_file(run: RunPaths, override: Path | None = None) -> Path:
@@ -63,7 +76,11 @@ def cmd_run(args) -> None:
     cfg = load_config(pipeline_file or project.pipeline_file)
     run_id = new_run_id()
     run = RunPaths(project, run_id)
-    state = RunState(pipeline=cfg.name, run_id=run_id)
+    # when spawned inside another run's agent (sub-pipeline), record the parent
+    parent_run_id = os.environ.get(C.FLOW_RUN_ID_ENV)
+    state = RunState(
+        pipeline=cfg.name, run_id=run_id, parent_run_id=parent_run_id
+    )
     driver = BackendDriver(project, run, {n: c.env for n, c in cfg.nodes.items()})
     orch = Orchestrator(
         project, run, cfg, state, driver,
@@ -81,8 +98,49 @@ def cmd_run(args) -> None:
 
 
 def cmd_status(args) -> None:
-    _, _, orch = _load_run_context(_run(args))
+    explicit = _run_explicit(args)
+    run = _run(args)
+    if not explicit:
+        from flow import runs as flow_runs
+
+        active = [
+            r for r in flow_runs.scan_runs(run.project) if not r.terminal
+        ]
+        if len(active) > 1:
+            print("multiple unfinished runs — pass a run id to disambiguate:")
+            for r in active:
+                print(
+                    f"  {r.run_id}  {r.pipeline_name}  "
+                    f"[{r.state_mark}] running={r.running_count}"
+                )
+            print()
+    _, _, orch = _load_run_context(run)
     print(orch.status_text())
+
+
+def cmd_tree(args) -> None:
+    from flow import runs as flow_runs
+
+    project = _project(args)
+    all_runs = flow_runs.scan_runs(project)
+    target = getattr(args, "run", None)
+    if target:
+        by_id = {r.run_id: r for r in all_runs}
+        if target not in by_id:
+            sys.exit(f"no run {target} under {project.runs_dir}")
+        kids = flow_runs.children_map(all_runs)
+        selected = []
+        stack = [target]
+        while stack:
+            rid = stack.pop()
+            r = by_id.get(rid)
+            if r is None:
+                continue
+            selected.append(r)
+            stack.extend(c.run_id for c in kids.get(rid, []))
+    else:
+        selected = all_runs
+    print(flow_runs.render_run_tree(selected))
 
 
 def cmd_attach(args) -> None:
@@ -107,6 +165,8 @@ def cmd_log(args) -> None:
     log = run.node_tty_log(args.node)
     if not log.is_file():
         sys.exit(f"no tty log at {log}")
+    if getattr(args, "follow", False):
+        os.execvp("tail", ["tail", "-f", str(log)])
     os.execvp("less", ["less", "-R", str(log)])
 
 
@@ -167,6 +227,33 @@ def cmd_inject(args) -> None:
     except OrchestratorError as e:
         sys.exit(str(e))
     print(f"queued message for {args.node}")
+
+
+def cmd_edit(args) -> None:
+    import shlex
+
+    run = _run(args)
+    cfg, _, _ = _load_run_context(run)
+    if args.node not in cfg.nodes:
+        sys.exit(f"unknown node {args.node}")
+    node_cfg = cfg.nodes[args.node]
+    if args.agent:
+        target = run.project.agent_def_dir(node_cfg.agent) / C.AGENT_MD
+        scope = "project definition (future runs)"
+    else:
+        target = run.node_agent_md(args.node)
+        scope = "run snapshot (this run's next retry)"
+    if not target.is_file():
+        sys.exit(f"no agent definition at {target}")
+    editor = (
+        os.environ.get("EDITOR") or os.environ.get("VISUAL") or "less"
+    )
+    print(f"editing {target} — {scope}")
+    subprocess.run(shlex.split(editor) + [str(target)], check=False)
+    print(f"edited {target}")
+    print(f"to re-run the node with the edited definition:")
+    print(f"  flow retry {args.node} -r {run.run_id} -p {run.project.root}")
+    print(f"  flow resume {run.run_id} -p {run.project.root}")
 
 
 # -- write-side commands ----------------------------------------------------
@@ -286,6 +373,11 @@ def build_parser() -> argparse.ArgumentParser:
     def common(sp):
         sp.add_argument("-p", "--project", help="project root (default: cwd upward search)")
 
+    def _add_run_opt(sp):
+        sp.add_argument(
+            "-r", "--run", metavar="RUN_ID", help="target run id (default: latest root run)"
+        )
+
     sp = sub.add_parser("run", help="start a new run")
     common(sp)
     sp.add_argument(
@@ -302,37 +394,48 @@ def build_parser() -> argparse.ArgumentParser:
         sp = sub.add_parser(name, help=help_)
         common(sp)
         sp.add_argument("run_id", nargs="?", help="run id (default: latest)")
+        _add_run_opt(sp)
         sp.set_defaults(func=globals()[f"cmd_{name}"])
+
+    sp = sub.add_parser("tree", help="show all runs of the project as a tree")
+    common(sp)
+    _add_run_opt(sp)
+    sp.set_defaults(func=cmd_tree)
 
     sp = sub.add_parser("attach", help="attach to run tmux session")
     common(sp)
     sp.add_argument("node", nargs="?", help="node name; holds its attach lock while attached")
     sp.add_argument("run_id", nargs="?", help="run id (default: latest)")
+    _add_run_opt(sp)
     sp.set_defaults(func=cmd_attach)
 
     sp = sub.add_parser("log", help="view a node's tty log")
     common(sp)
     sp.add_argument("node")
     sp.add_argument("run_id", nargs="?", help="run id (default: latest)")
+    _add_run_opt(sp)
+    sp.add_argument("-f", "--follow", action="store_true", help="follow the log (tail -f)")
     sp.set_defaults(func=cmd_log)
 
     sp = sub.add_parser("approve", help="approve a waiting-human gate node")
     common(sp)
     sp.add_argument("node")
     sp.add_argument("run_id", nargs="?")
+    _add_run_opt(sp)
     sp.set_defaults(func=cmd_approve)
 
     sp = sub.add_parser("retry", help="reset a node to pending")
     common(sp)
     sp.add_argument("node")
     sp.add_argument("run_id", nargs="?")
+    _add_run_opt(sp)
     sp.set_defaults(func=cmd_retry)
 
     sp = sub.add_parser("skip", help="give up a failed/waiting-human node; downstream proceeds")
     common(sp)
     sp.add_argument("node")
     sp.add_argument("reason", nargs="*", help="why it is skipped (recorded in state)")
-    sp.add_argument("run_id", nargs="?")
+    _add_run_opt(sp)
     sp.set_defaults(func=cmd_skip)
 
     sp = sub.add_parser("inject", help="queue a message to a running node")
@@ -340,7 +443,16 @@ def build_parser() -> argparse.ArgumentParser:
     sp.add_argument("node")
     sp.add_argument("message")
     sp.add_argument("run_id", nargs="?")
+    _add_run_opt(sp)
     sp.set_defaults(func=cmd_inject)
+
+    sp = sub.add_parser("edit", help="edit a node's agent.md (run snapshot, or --agent for the project definition)")
+    common(sp)
+    sp.add_argument("node")
+    sp.add_argument("run_id", nargs="?")
+    _add_run_opt(sp)
+    sp.add_argument("--agent", action="store_true", help="edit agents/<name>/agent.md instead of the run snapshot")
+    sp.set_defaults(func=cmd_edit)
 
     sp = sub.add_parser("validate", help="validate a pipeline yaml")
     common(sp)

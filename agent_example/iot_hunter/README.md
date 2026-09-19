@@ -37,7 +37,7 @@ unpacker(gate) ─┬─→ planner ─→ correlator ─→ reporter(gate) ─�
 - **证据分级**：静态（反汇编级、地址可复核）→ 动态（执行级实证 / 证伪）；未验证项维持静态置信度，禁止升级
 - **追加式发现协议**：findings.md 按 `[agent名]` 标记来源逐条追加；summary.md + done.flag 声明节点完成
 - **跨 run 经验沉淀**：`agents/<name>/longterm.md` 种子随每个 run 快照进私有 memory（FirmAE 踩坑清单、serial log 取证法、按 fidelity 裁剪工单），run 内新教训写在"晋升候选"节、人工定期晋升
-- **故障自愈**：`scripts/watchdog.sh` 检测 API 网关故障（tty.log 尾部 API Error）自动 inject 恢复提示（30min 节流）；运行超时巡检提醒 control 分析（2h 过期重报）。单次脚本，需外部循环调度
+- **故障自愈**：`scripts/watchdog.sh` 检测 API 网关故障（tty.log 尾部 API Error）自动 inject 恢复提示（30min 节流）；运行超时巡检提醒 control 分析（2h 过期重报）。`--loop` 自守护（pidfile 防双启，60s 间隔），`--stop` 停止；默认单次执行向后兼容
 - **运行中干预**：gate `flow approve`、卡死 `flow inject`、必要时 tmux attach 直接进对话
 
 ## 实战成绩
@@ -47,8 +47,9 @@ unpacker(gate) ─┬─→ planner ─→ correlator ─→ reporter(gate) ─�
 | Cisco Catalyst 2950 · IOS 12.0(5.4)WC1 | 2026-09-14 静态轮 | 5 候选漏洞、2 条 RCE 链（字节级证据）；IOS MZIP 单体架构性不可仿真，纯静态收尾 |
 | Cisco Aironet 1850 ME · 8.10.130.0 | 2026-09-15/16 首轮 + retest | 8 候选 → 2 条 pre-auth root RCE 执行级实证、1 条执行级证伪；本轮暴露的串行浪费与网关长故障直接催生 v2 |
 | Cisco Aironet 1850 ME · 8.10.130.0 | 2026-09-17 v2 并行轮 | **20 候选 → 6 条执行级实证**（3 条互相独立的单请求 pre-auth root RCE、通用认证绕过原语、无认证凭据重置、凭据哈希泄露）、1 条执行级证伪（tar 穿越）、13 条维持静态结论。13 节点全链 4h42m，16 个 agent 会话，2,944 次 API 调用，名义 2.28 亿 token（96% 为缓存读） |
+| Cisco Aironet 1850 ME · 8.10.130.0 | 2026-09-18 补验轮 | 13 条未验证项动态补验 + 补审：**累计 12 条执行级实证**（新增 sshd 认证层完全绕过、dlopen root RCE 链闭环、CVE-2019-11587 单包 DoS 实证等 6 条）、3 条证伪、**5 条新静态重大发现**（capwapd pre-auth VSP 堆溢出 ~49.5KB、codec 栈溢出、chpasswd root 注入 + 硬编码 UID 0 凭据）；终判报告 28 漏洞全表。两批并行子流水线（planner 动态 fan-out） |
 
-`workdir/artifacts/` 下是 v2 轮的真实产出示例：`final-report.md`（终判报告）、`report.md`（静态审计报告）、`vulns.md`（候选清单）。
+`workdir/artifacts/` 下是补验轮的真实产出示例：`final-report.md`（终判报告，28 漏洞全表）、`report.md`（静态审计报告）、`vulns.md`（候选清单）。
 
 ## 目录说明
 
