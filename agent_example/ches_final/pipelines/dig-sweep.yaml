@@ -1,0 +1,67 @@
+name: phase2-dig-sweep
+nodes:
+  env-setup:
+    agent: env-setup
+    backend: claude
+    task: 双轨验证环境契约——宿主 Verilator 5.020 冒烟+靶树核验+判官容器判活(4.210)+自写最小 TB 双轨计时+on-device bazel 探针+并行容量实测,写本 run memory/env.md
+    needs: []
+    gate: false
+    timeout: 3600
+    retry: 2
+    inject:
+      - ../../knowledge/sim-craft.md
+      - ../../knowledge/context.md
+  poc-planner:
+    agent: poc-planner
+    backend: claude
+    task: candidate 队列+PoC 工单+poc/审计波次子 run 监督——attack-ledger 四源登记、Tier-0 构造性筛查、PoC 四值判定前置、票据-收据流化协议、FINAL→ROSTER-CLOSED 收口
+    needs: [env-setup]
+    gate: false
+    timeout: null
+    retry: 1
+    inject:
+      - ../../knowledge/context.md
+      - ../../knowledge/sim-craft.md
+      - ../../knowledge/impl-patterns.md
+      - ../../knowledge/ot-security.md
+      - ../../knowledge/spec-map.md
+      - ../../knowledge/flow-map.md
+      - ../../workdir/FINDINGS.md
+      - ../../workdir/sweep-focus.md
+  adjudicator:
+    agent: adjudicator
+    backend: claude
+    task: Gate-2 判官口径流化常驻——轮询 plan/waves/ 未收据票据,逐票裁决(链闭合×危害五问;聚类对照 SUBMISSIONS 已投基线),CHAIN-CLOSED 才建 bug-unit,逐票写收据;FINAL→ROSTER-CLOSED
+    needs: []
+    gate: false
+    timeout: null
+    retry: 2
+    inject:
+      - ../../knowledge/context.md
+      - ../../knowledge/delivery-format.md
+      - ../../workdir/FINDINGS.md
+      - ../../workdir/SUBMISSIONS.md
+  bug-planner:
+    agent: bug-planner
+    backend: claude
+    task: FILED unit 流化成链——轮询新收据新 FILED 单元,价值×可行性×时间戳排序,排链前 tool-evidence 收集(discovery 相),bug-batch-N 四节点链子 run(report→verify→exploit→check)监督,产物直写 workdir/staged/,backlog 落账;ROSTER-CLOSED 且排空后收尾
+    needs: [env-setup]
+    gate: false
+    timeout: null
+    retry: 1
+    inject:
+      - ../../knowledge/context.md
+      - ../../knowledge/delivery-format.md
+      - ../../workdir/SUBMISSIONS.md
+  finalizer:
+    agent: finalizer
+    backend: claude
+    task: 合规收口——lint_pkg.sh 逐包电池+CVSS 抽核+证据定级+SUBMISSIONS 台账增量+coverage 覆盖台账+FINDINGS 守恒审计+attack-ledger 记账+晋升候选汇总
+    needs: [poc-planner, adjudicator, bug-planner]
+    gate: false
+    timeout: null
+    retry: 2
+    inject:
+      - ../../knowledge/context.md
+      - ../../knowledge/delivery-format.md
+      - ../../workdir/SUBMISSIONS.md

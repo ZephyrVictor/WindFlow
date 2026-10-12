@@ -1,0 +1,13 @@
+name: phase2-finals-campaign
+control: true
+nodes:
+  campaign:
+    agent: controller
+    backend: claude
+    task: 决赛靶树(/opt/opentitan,唯一参考)挖掘+成链+终审 campaign 总调度——逐轮 launch pipelines/dig-sweep.yaml、焦点与覆盖判定、轮间知识沉淀、campaign 级故障自愈、投递就绪包打包触发与用户通知;全程自治,投递永远人工
+    needs: []
+    gate: false
+    timeout: null
+    retry: 1
+    inject:
+      - ../../knowledge/context.md
